@@ -6,7 +6,7 @@ use rustc_ast::ast;
 use rustc_data_structures::fx::{FxHashMap, FxHashSet};
 use rustc_errors::Applicability;
 use rustc_hir::def_id::DefId;
-use rustc_lint::{EarlyContext, EarlyLintPass};
+use rustc_lint::{EarlyContext, EarlyLintPass, LintContext};
 use rustc_session::impl_lint_pass;
 use rustc_span::Span;
 use rustc_span::hygiene::{ExpnKind, MacroKind};
@@ -115,6 +115,12 @@ impl EarlyLintPass for MacroBraces {
 }
 
 fn is_offending_macro(cx: &EarlyContext<'_>, span: Span, mac_braces: &MacroBraces) -> Option<MacroInfo> {
+    // Nursery (allow-by-default) lint: skip the macro-backtrace walk when it can't emit here.
+    // `from_expansion()` is false for non-macro spans, preserving the existing fast path.
+    if !span.from_expansion() || cx.get_lint_level_spec(NONSTANDARD_MACRO_BRACES).is_allow() {
+        return None;
+    }
+
     let unnested_or_local = |span: Span| {
         !span.from_expansion()
             || span
