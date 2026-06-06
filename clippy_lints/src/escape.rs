@@ -97,6 +97,17 @@ impl<'tcx> LateLintPass<'tcx> for BoxedLocal {
             _ => {},
         }
 
+        // `EscapeDelegate::mutate` only inserts non-trait `Box` parameters into the set, so a body
+        // without one can never lint. Skip the expensive `ExprUseVisitor` walk in that common case.
+        let typeck_results = cx.tcx.typeck_body(body.id());
+        if !body
+            .params
+            .iter()
+            .any(|param| is_non_trait_box(typeck_results.pat_ty(param.pat)))
+        {
+            return;
+        }
+
         let mut v = EscapeDelegate {
             cx,
             set: HirIdSet::default(),
