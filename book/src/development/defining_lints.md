@@ -183,31 +183,17 @@ automatically registered and there is nothing more to do.
 However, sometimes we might want to declare a new lint by hand. In this case,
 we'd use `cargo dev update_lints` command afterwards.
 
-When a lint is manually declared, we need to add its pass to the
-statically-combined lint pass in `clippy_lints/src/lib.rs`. All of Clippy's late
-passes are folded into a single `CombinedLateLintPass`, and all early passes into
-a single `CombinedEarlyLintPass`, so that empty default methods can be dropped and
-the surviving overrides inlined instead of dispatched through a `dyn` vtable per
-pass.
-
-To register a pass, add an entry to the relevant `late_lint_methods!` (or
-`early_lint_methods!`) macro invocation, at the `// add late passes here` (or
-`// add early passes here`) marker. Each entry has the form `Field: Type =
-constructor`:
+When a lint is manually declared, we might need to register the lint pass
+manually by adding an entry to the `late_lint_methods!` macro invocation in
+`clippy_lints/src/lib.rs`, at the `// add late passes here` marker:
 
 ```rust
 FooFunctions: foo_functions::FooFunctions = foo_functions::FooFunctions,
 ```
 
-If the pass needs the user configuration, construct it with `conf`:
-
-```rust
-FooFunctions: foo_functions::FooFunctions = foo_functions::FooFunctions::new(conf),
-```
-
 As you might have guessed, where there's something late, there is something
-early: pick `early_lint_methods!` or `late_lint_methods!` accordingly. More on
-early vs. late passes in the [Lint Passes] chapter.
+early: in Clippy there is an `early_lint_methods!` macro as well. More on early
+vs. late passes in the [Lint Passes] chapter.
 
 Without an entry in one of `early_lint_methods!` or `late_lint_methods!`, the
 lint pass in question will not be run.
