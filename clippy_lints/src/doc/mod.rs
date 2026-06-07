@@ -21,7 +21,8 @@ use rustc_resolve::rustdoc::{
     source_span_for_markdown_range, span_of_fragments,
 };
 use rustc_session::impl_lint_pass;
-use rustc_span::Span;
+use rustc_span::{InnerSpan, Span};
+use std::cell::OnceCell;
 use std::ops::Range;
 use url::Url;
 
@@ -831,10 +832,88 @@ impl<'tcx> LateLintPass<'tcx> for Documentation {
     }
 }
 
+/// Per-doc map from markdown byte offsets to source `Span`s, for the common case where every doc
+/// fragment is sugared (`///`, `//!`, ...).
+///
+/// `source_span_for_markdown_range` re-fetches the source snippet and re-walks every line on each
+/// call, which is `O(n)` per lookup and `O(n^2)` for a doc that fires many lints. Because markdown
+/// and source advance byte-for-byte within a line, the offset of a markdown position in the source
+/// is just `pos + delta`, where `delta` is the extra source bytes (indentation, comment markers,
+/// source lines with no markdown counterpart) sitting before that line's content. We walk once to
+/// record the per-line `delta`; a lookup is then a binary search plus an addition.
+struct SugaredDocSpanMap {
+    /// Span covering all fragments; markdown offsets are resolved relative to it.
+    base: Span,
+    /// Byte offset in the markdown where each line begins.
+    line_starts: Vec<usize>,
+    /// Extra source bytes before each line's content; `line_starts[i] + deltas[i]` is the source
+    /// offset of line `i`. Shorter than `line_starts` if the walk ran out of source lines.
+    deltas: Vec<usize>,
+}
+
+impl SugaredDocSpanMap {
+    /// Builds the map, or returns `None` when the fast path does not apply (any non-sugared
+    /// fragment, or the source snippet cannot be recovered), so callers fall back to
+    /// `source_span_for_markdown_range`.
+    fn build(cx: &LateContext<'_>, markdown: &str, fragments: &[DocFragment]) -> Option<Self> {
+        if fragments.is_empty() || !fragments.iter().all(|frag| frag.kind.is_sugared()) {
+            return None;
+        }
+        let base = span_of_fragments(fragments)?;
+        let snippet = cx.sess().source_map().span_to_snippet(base).ok()?;
+
+        // Walk the source and markdown lines together once, recording how many extra source bytes
+        // precede each markdown line's content.
+        let mut deltas = Vec::new();
+        let mut src_lines = snippet.split_terminator('\n');
+        let mut md_pos = 0;
+        let mut src_pos = 0;
+        'lines: for md_line in markdown.split_terminator('\n') {
+            loop {
+                let Some(src_line) = src_lines.next() else {
+                    break 'lines;
+                };
+                if let Some(prefix) = src_line.find(md_line) {
+                    deltas.push(src_pos + prefix - md_pos);
+                    src_pos += src_line.len() + 1;
+                    break;
+                }
+                src_pos += src_line.len() + 1;
+            }
+            md_pos += md_line.len() + 1;
+        }
+
+        let mut line_starts = vec![0];
+        line_starts.extend(markdown.match_indices('\n').map(|(i, _)| i + 1));
+
+        Some(Self {
+            base,
+            line_starts,
+            deltas,
+        })
+    }
+
+    fn span(&self, range: &Range<usize>) -> Option<Span> {
+        Some(self.base.from_inner(InnerSpan::new(
+            self.map_offset(range.start)?,
+            self.map_offset(range.end)?,
+        )))
+    }
+
+    /// Maps a markdown byte offset to a `base`-relative source offset, or `None` if the walk never
+    /// reached that line (callers then fall back to the slow path).
+    fn map_offset(&self, pos: usize) -> Option<usize> {
+        let line = self.line_starts.partition_point(|&start| start <= pos) - 1;
+        Some(pos + *self.deltas.get(line)?)
+    }
+}
+
 #[derive(Copy, Clone)]
 struct Fragments<'a> {
     doc: &'a str,
     fragments: &'a [DocFragment],
+    /// Lazily-built line index shared across all span lookups for this doc.
+    span_map: &'a OnceCell<Option<SugaredDocSpanMap>>,
 }
 
 impl Fragments<'_> {
@@ -842,6 +921,14 @@ impl Fragments<'_> {
     /// caution.
     #[must_use]
     fn span(self, cx: &LateContext<'_>, range: Range<usize>) -> Option<Span> {
+        let map = self
+            .span_map
+            .get_or_init(|| SugaredDocSpanMap::build(cx, self.doc, self.fragments));
+        if let Some(map) = map
+            && let Some(span) = map.span(&range)
+        {
+            return Some(span);
+        }
         source_span_for_markdown_range(cx.tcx, self.doc, &range, self.fragments).map(|(sp, _)| sp)
     }
 }
@@ -906,6 +993,9 @@ fn check_attrs(cx: &LateContext<'_>, valid_idents: &FxHashSet<String>, attrs: &[
         return Some(DocHeaders::default());
     }
 
+    // Shared across every span lookup for this doc so the line index is built at most once.
+    let span_map = OnceCell::new();
+
     // Only emits the allow-by-default `DOC_LINK_CODE`; skip its extra markdown reparse when it's off.
     if !clippy_utils::is_lint_allowed(cx, DOC_LINK_CODE, cx.last_node_with_lint_attrs) {
         check_for_code_clusters(
@@ -920,6 +1010,7 @@ fn check_attrs(cx: &LateContext<'_>, valid_idents: &FxHashSet<String>, attrs: &[
             Fragments {
                 doc: &doc,
                 fragments: &fragments,
+                span_map: &span_map,
             },
         );
     }
@@ -932,6 +1023,7 @@ fn check_attrs(cx: &LateContext<'_>, valid_idents: &FxHashSet<String>, attrs: &[
             Fragments {
                 doc: &doc,
                 fragments: &fragments,
+                span_map: &span_map,
             },
         );
     }
@@ -956,6 +1048,7 @@ fn check_attrs(cx: &LateContext<'_>, valid_idents: &FxHashSet<String>, attrs: &[
         Fragments {
             doc: &doc,
             fragments: &fragments,
+            span_map: &span_map,
         },
         attrs,
     ))
