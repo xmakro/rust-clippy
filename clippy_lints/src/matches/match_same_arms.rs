@@ -18,7 +18,11 @@ use rustc_span::{ByteSymbol, ErrorGuaranteed, Span, Symbol, SyntaxContext};
 use super::MATCH_SAME_ARMS;
 
 #[expect(clippy::too_many_lines)]
-pub(super) fn check<'tcx>(cx: &LateContext<'tcx>, arms: &'tcx [Arm<'_>]) {
+pub(super) fn check<'tcx>(cx: &LateContext<'tcx>, expr: &'tcx Expr<'_>, arms: &'tcx [Arm<'_>]) {
+    if is_lint_allowed(cx, MATCH_SAME_ARMS, expr.hir_id) {
+        return;
+    }
+
     let hash = |&(_, arm): &(_, &Arm<'_>)| hash_expr(cx, arm.body);
 
     let arena = DroplessArena::default();
