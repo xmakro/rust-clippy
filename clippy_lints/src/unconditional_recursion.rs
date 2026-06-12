@@ -78,6 +78,8 @@ pub struct UnconditionalRecursion {
     /// The key is the `DefId` of the type implementing the `Default` trait and the value is the
     /// `DefId` of the return call.
     default_impl_for_type: FxHashMap<DefId, DefId>,
+    /// Whether `default_impl_for_type` has been initialized.
+    default_impl_init_done: bool,
 }
 
 fn span_error(cx: &LateContext<'_>, method_span: Span, expr: &Expr<'_>) {
@@ -332,9 +334,11 @@ where
 
 impl UnconditionalRecursion {
     fn init_default_impl_for_type_if_needed(&mut self, cx: &LateContext<'_>) {
-        if self.default_impl_for_type.is_empty()
-            && let Some(default_trait_id) = cx.tcx.get_diagnostic_item(sym::Default)
-        {
+        if self.default_impl_init_done {
+            return;
+        }
+        self.default_impl_init_done = true;
+        if let Some(default_trait_id) = cx.tcx.get_diagnostic_item(sym::Default) {
             let impls = cx.tcx.trait_impls_of(default_trait_id);
             for (ty, impl_def_ids) in impls.non_blanket_impls() {
                 let Some(self_def_id) = ty.def() else { continue };
@@ -399,6 +403,8 @@ impl UnconditionalRecursion {
             }
             && let Some(return_def_id) = self.default_impl_for_type.get(&implemented_ty_id)
             && method_def_id.to_def_id() == *return_def_id
+            // Doesn't have a conditional return.
+            && !has_conditional_return(body, expr_or_init(cx, body.value).peel_blocks())
         {
             let mut c = CheckCalls {
                 cx,
@@ -449,16 +455,20 @@ impl<'tcx> LateLintPass<'tcx> for UnconditionalRecursion {
         method_def_id: LocalDefId,
     ) {
         // If the function is a method...
-        if let FnKind::Method(name, _) = kind
-            && let expr = expr_or_init(cx, body.value).peel_blocks()
-            // Doesn't have a conditional return.
-            && !has_conditional_return(body, expr)
-        {
-            match name.name {
-                sym::eq | sym::ne => check_partial_eq(cx, method_span, method_def_id, name, expr),
-                sym::to_string => check_to_string(cx, method_span, method_def_id, name, expr),
-                sym::from => check_from(cx, method_span, method_def_id, expr),
-                _ => {},
+        if let FnKind::Method(name, _) = kind {
+            // Only walk the body when the method name is of interest, as both `expr_or_init` and
+            // `has_conditional_return` visit potentially large parts of it.
+            if matches!(name.name, sym::eq | sym::ne | sym::to_string | sym::from) {
+                let expr = expr_or_init(cx, body.value).peel_blocks();
+                // Doesn't have a conditional return.
+                if !has_conditional_return(body, expr) {
+                    match name.name {
+                        sym::eq | sym::ne => check_partial_eq(cx, method_span, method_def_id, name, expr),
+                        sym::to_string => check_to_string(cx, method_span, method_def_id, name, expr),
+                        sym::from => check_from(cx, method_span, method_def_id, expr),
+                        _ => {},
+                    }
+                }
             }
             self.check_default_new(cx, decl, body, method_span, method_def_id);
         }
