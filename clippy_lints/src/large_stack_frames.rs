@@ -1,3 +1,4 @@
+use clippy_utils::macros::is_in_external_macro;
 use std::{fmt, ops};
 
 use clippy_config::Conf;
@@ -232,7 +233,7 @@ impl<'tcx> LateLintPass<'tcx> for LargeStackFrames {
                     return;
                 }
 
-                let is_from_external_macro = fn_span.in_external_macro(cx.tcx.sess.source_map());
+                let is_from_external_macro = is_in_external_macro(cx.sess(), fn_span);
                 span_lint_and_then(
                     cx,
                     LARGE_STACK_FRAMES,
