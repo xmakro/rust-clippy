@@ -1,5 +1,6 @@
 use clippy_utils::diagnostics::span_lint_hir_and_then;
 use clippy_utils::is_from_proc_macro;
+use clippy_utils::macros::is_ctxt_in_external_macro;
 use clippy_utils::source::{SpanExt, indent_of, reindent_multiline};
 use rustc_errors::Applicability;
 use rustc_hir::{Block, Expr, ExprKind, MatchSource, Stmt, StmtKind};
@@ -81,7 +82,7 @@ fn check<'tcx>(cx: &LateContext<'tcx>, ctxt: SyntaxContext, needs_semi: bool, e:
     };
 
     if e.span.ctxt() == ctxt
-        && !ctxt.in_external_macro(cx.tcx.sess.source_map())
+        && !is_ctxt_in_external_macro(cx.tcx.sess, ctxt)
         && !is_from_proc_macro(cx, e)
         && let Some(src) = else_.span.get_text(cx)
         && let Some(src) = src.strip_prefix('{')
