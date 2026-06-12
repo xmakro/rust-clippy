@@ -80,10 +80,19 @@ declare_lint_pass!(Unicode => [
 
 impl LateLintPass<'_> for Unicode {
     fn check_expr(&mut self, cx: &LateContext<'_>, expr: &'_ Expr<'_>) {
-        if let ExprKind::Lit(lit) = expr.kind
-            && let LitKind::Str(_, _) | LitKind::Char(_) = lit.node
-        {
-            check_str(cx, lit.span, expr.hir_id);
+        if let ExprKind::Lit(lit) = expr.kind {
+            // If the cooked value is pure ASCII, so is the source snippet: escape
+            // sequences consist of ASCII characters and non-ASCII source characters
+            // cook to themselves. None of these lints can fire then, so the snippet
+            // lookup can be skipped entirely.
+            let has_non_ascii = match lit.node {
+                LitKind::Str(sym, _) => !sym.as_str().is_ascii(),
+                LitKind::Char(c) => !c.is_ascii(),
+                _ => false,
+            };
+            if has_non_ascii {
+                check_str(cx, lit.span, expr.hir_id);
+            }
         }
     }
 }
