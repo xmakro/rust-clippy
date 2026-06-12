@@ -75,9 +75,9 @@ impl_lint_pass!(UnconditionalRecursion => [UNCONDITIONAL_RECURSION]);
 
 #[derive(Default)]
 pub struct UnconditionalRecursion {
-    /// The key is the `DefId` of the type implementing the `Default` trait and the value is the
-    /// `DefId` of the return call.
-    default_impl_for_type: FxHashMap<DefId, DefId>,
+    /// Maps the `DefId` of a `Default`-implementing type to the `DefId` of the call its `default`
+    /// method returns. `None` until lazily built on first use.
+    default_impl_for_type: Option<FxHashMap<DefId, DefId>>,
 }
 
 fn span_error(cx: &LateContext<'_>, method_span: Span, expr: &Expr<'_>) {
@@ -331,40 +331,43 @@ where
 }
 
 impl UnconditionalRecursion {
-    fn init_default_impl_for_type_if_needed(&mut self, cx: &LateContext<'_>) {
-        if self.default_impl_for_type.is_empty()
-            && let Some(default_trait_id) = cx.tcx.get_diagnostic_item(sym::Default)
-        {
-            let impls = cx.tcx.trait_impls_of(default_trait_id);
-            for (ty, impl_def_ids) in impls.non_blanket_impls() {
-                let Some(self_def_id) = ty.def() else { continue };
-                for &impl_def_id in impl_def_ids {
-                    if !cx.tcx.is_automatically_derived(impl_def_id) &&
-                        let Some(assoc_item) = cx
-                            .tcx
-                            .associated_items(impl_def_id)
-                            .in_definition_order()
-                            // We're not interested in foreign implementations of the `Default` trait.
-                            .find(|item| {
-                                item.is_fn() && item.def_id.is_local() && item.name() == kw::Default
-                            })
-                        && let Some(body_node) = cx.tcx.hir_get_if_local(assoc_item.def_id)
-                        && let Some(body_id) = body_node.body_id()
-                        && let body = cx.tcx.hir_body(body_id)
-                        // We don't want to keep it if it has conditional return.
-                        && let [return_expr] = get_return_calls_in_body(body).as_slice()
-                        && let ExprKind::Call(call_expr, _) = return_expr.kind
-                        // We need to use typeck here to infer the actual function being called.
-                        && let body_def_id = cx.tcx.hir_enclosing_body_owner(call_expr.hir_id)
-                        && let Some(body_owner) = cx.tcx.hir_maybe_body_owned_by(body_def_id)
-                        && let typeck = cx.tcx.typeck_body(body_owner.id())
-                        && let Some(call_def_id) = typeck.type_dependent_def_id(call_expr.hir_id)
-                    {
-                        self.default_impl_for_type.insert(self_def_id, call_def_id);
+    /// Returns [`Self::default_impl_for_type`], building it on the first call.
+    fn default_impl_for_type(&mut self, cx: &LateContext<'_>) -> &FxHashMap<DefId, DefId> {
+        self.default_impl_for_type.get_or_insert_with(|| {
+            let mut default_impl_for_type = FxHashMap::default();
+            if let Some(default_trait_id) = cx.tcx.get_diagnostic_item(sym::Default) {
+                let impls = cx.tcx.trait_impls_of(default_trait_id);
+                for (ty, impl_def_ids) in impls.non_blanket_impls() {
+                    let Some(self_def_id) = ty.def() else { continue };
+                    for &impl_def_id in impl_def_ids {
+                        if !cx.tcx.is_automatically_derived(impl_def_id) &&
+                            let Some(assoc_item) = cx
+                                .tcx
+                                .associated_items(impl_def_id)
+                                .in_definition_order()
+                                // We're not interested in foreign implementations of the `Default` trait.
+                                .find(|item| {
+                                    item.is_fn() && item.def_id.is_local() && item.name() == kw::Default
+                                })
+                            && let Some(body_node) = cx.tcx.hir_get_if_local(assoc_item.def_id)
+                            && let Some(body_id) = body_node.body_id()
+                            && let body = cx.tcx.hir_body(body_id)
+                            // We don't want to keep it if it has conditional return.
+                            && let [return_expr] = get_return_calls_in_body(body).as_slice()
+                            && let ExprKind::Call(call_expr, _) = return_expr.kind
+                            // We need to use typeck here to infer the actual function being called.
+                            && let body_def_id = cx.tcx.hir_enclosing_body_owner(call_expr.hir_id)
+                            && let Some(body_owner) = cx.tcx.hir_maybe_body_owned_by(body_def_id)
+                            && let typeck = cx.tcx.typeck_body(body_owner.id())
+                            && let Some(call_def_id) = typeck.type_dependent_def_id(call_expr.hir_id)
+                        {
+                            default_impl_for_type.insert(self_def_id, call_def_id);
+                        }
                     }
                 }
             }
-        }
+            default_impl_for_type
+        })
     }
 
     fn check_default_new<'tcx>(
@@ -393,12 +396,11 @@ impl UnconditionalRecursion {
             }),
         )) = cx.tcx.hir_parent_iter(hir_id).next()
             && let Some(implemented_ty_id) = get_hir_ty_def_id(cx.tcx, *impl_.self_ty)
-            && {
-                self.init_default_impl_for_type_if_needed(cx);
-                true
-            }
-            && let Some(return_def_id) = self.default_impl_for_type.get(&implemented_ty_id)
-            && method_def_id.to_def_id() == *return_def_id
+            && let Some(return_def_id) = self.default_impl_for_type(cx).get(&implemented_ty_id).copied()
+            && method_def_id.to_def_id() == return_def_id
+            // `check_fn` skips this path's conditional-return check, so do it here. Last, as it
+            // walks the body, which the cheap checks above usually let us skip.
+            && !has_conditional_return(body, expr_or_init(cx, body.value).peel_blocks())
         {
             let mut c = CheckCalls {
                 cx,
@@ -449,16 +451,19 @@ impl<'tcx> LateLintPass<'tcx> for UnconditionalRecursion {
         method_def_id: LocalDefId,
     ) {
         // If the function is a method...
-        if let FnKind::Method(name, _) = kind
-            && let expr = expr_or_init(cx, body.value).peel_blocks()
-            // Doesn't have a conditional return.
-            && !has_conditional_return(body, expr)
-        {
-            match name.name {
-                sym::eq | sym::ne => check_partial_eq(cx, method_span, method_def_id, name, expr),
-                sym::to_string => check_to_string(cx, method_span, method_def_id, name, expr),
-                sym::from => check_from(cx, method_span, method_def_id, expr),
-                _ => {},
+        if let FnKind::Method(name, _) = kind {
+            // Gate the body walk below on the method name to skip it for methods we never lint.
+            if matches!(name.name, sym::eq | sym::ne | sym::to_string | sym::from) {
+                let expr = expr_or_init(cx, body.value).peel_blocks();
+                // Doesn't have a conditional return.
+                if !has_conditional_return(body, expr) {
+                    match name.name {
+                        sym::eq | sym::ne => check_partial_eq(cx, method_span, method_def_id, name, expr),
+                        sym::to_string => check_to_string(cx, method_span, method_def_id, name, expr),
+                        sym::from => check_from(cx, method_span, method_def_id, expr),
+                        _ => {},
+                    }
+                }
             }
             self.check_default_new(cx, decl, body, method_span, method_def_id);
         }
