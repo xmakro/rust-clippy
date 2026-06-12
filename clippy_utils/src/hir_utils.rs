@@ -499,12 +499,12 @@ impl HirEqInterExpr<'_, '_, '_> {
             None => {
                 if let Some((typeck_lhs, typeck_rhs)) = self.inner.maybe_typeck_results
                     && typeck_lhs.expr_ty(left) == typeck_rhs.expr_ty(right)
-                    && let (Some(l), Some(r)) = (
-                        ConstEvalCtxt::with_env(self.inner.cx.tcx, self.inner.cx.typing_env(), typeck_lhs)
-                            .eval_local(left, self.eval_ctxt),
-                        ConstEvalCtxt::with_env(self.inner.cx.tcx, self.inner.cx.typing_env(), typeck_rhs)
-                            .eval_local(right, self.eval_ctxt),
-                    )
+                    // Evaluate the left side first so the right side is not const-evaluated
+                    // when the left side isn't a constant.
+                    && let Some(l) = ConstEvalCtxt::with_env(self.inner.cx.tcx, self.inner.cx.typing_env(), typeck_lhs)
+                        .eval_local(left, self.eval_ctxt)
+                    && let Some(r) = ConstEvalCtxt::with_env(self.inner.cx.tcx, self.inner.cx.typing_env(), typeck_rhs)
+                        .eval_local(right, self.eval_ctxt)
                     && l == r
                 {
                     return true;
