@@ -208,7 +208,11 @@ pub struct LiteralDigitGrouping {
 
 impl EarlyLintPass for LiteralDigitGrouping {
     fn check_expr(&mut self, cx: &EarlyContext<'_>, expr: &Expr) {
+        // `NumericLiteral::from_lit_kind` only accepts integer and float literals, which the
+        // token kind already tells apart, so check it first to avoid extracting the source
+        // text (and unescaping string literals in `from_token_lit`) for all other literals.
         if let ExprKind::Lit(lit) = expr.kind
+            && matches!(lit.kind, token::LitKind::Integer | token::LitKind::Float)
             && !is_in_external_macro(cx.sess(), expr.span)
         {
             self.check_lit(cx, lit, expr.span);
@@ -419,7 +423,10 @@ pub struct DecimalLiteralRepresentation {
 
 impl EarlyLintPass for DecimalLiteralRepresentation {
     fn check_expr(&mut self, cx: &EarlyContext<'_>, expr: &Expr) {
+        // Only integer tokens can produce `LitKind::Int`, so check the token kind first to
+        // avoid unescaping string literals in `from_token_lit` for nothing.
         if let ExprKind::Lit(lit) = expr.kind
+            && lit.kind == token::LitKind::Integer
             && !is_in_external_macro(cx.sess(), expr.span)
         {
             self.check_lit(cx, lit, expr.span);
@@ -437,10 +444,10 @@ impl DecimalLiteralRepresentation {
         // Lint integral literals.
         if let Ok(lit_kind) = LitKind::from_token_lit(lit)
             && let LitKind::Int(val, _) = lit_kind
+            && val >= u128::from(self.threshold)
             && let Some(src) = span.get_source_text(cx)
             && let Some(num_lit) = NumericLiteral::from_lit_kind(&src, &lit_kind)
             && num_lit.radix == Radix::Decimal
-            && val >= u128::from(self.threshold)
         {
             let hex = format!("{val:#X}");
             let num_lit = NumericLiteral::new(&hex, num_lit.suffix, false);
