@@ -1,6 +1,7 @@
 use arrayvec::ArrayVec;
 use clippy_config::Conf;
 use clippy_utils::diagnostics::span_lint_and_help;
+use clippy_utils::macros::is_ctxt_in_external_macro;
 use clippy_utils::msrvs::{self, Msrv};
 use clippy_utils::res::MaybeResPath;
 use clippy_utils::visitors::{Visitable, for_each_expr};
@@ -95,7 +96,7 @@ impl LateLintPass<'_> for TupleArrayConversions {
                     && let mut eq = SpanlessEq::new(cx).deny_side_effects()
                     && bases.iter().all(|e| eq.eq_expr(ctxt, first_base, e))
                     && self.msrv.meets(cx, msrvs::TUPLE_ARRAY_CONVERSIONS)
-                    && !ctxt.in_external_macro(cx.tcx.sess.source_map())
+                    && !is_ctxt_in_external_macro(cx.tcx.sess, ctxt)
                     && !is_from_proc_macro(cx, e)
                 {
                     span_lint_and_help(
@@ -141,7 +142,7 @@ impl LateLintPass<'_> for TupleArrayConversions {
                     && let mut eq = SpanlessEq::new(cx).deny_side_effects()
                     && bases.iter().all(|e| eq.eq_expr(ctxt, first_base, e))
                     && self.msrv.meets(cx, msrvs::TUPLE_ARRAY_CONVERSIONS)
-                    && !ctxt.in_external_macro(cx.tcx.sess.source_map())
+                    && !is_ctxt_in_external_macro(cx.tcx.sess, ctxt)
                     && !is_from_proc_macro(cx, e)
                 {
                     span_lint_and_help(
@@ -220,7 +221,7 @@ impl LateLintPass<'_> for TupleArrayConversions {
                             Continue(())
                         }
                     })
-                    && !ctxt.in_external_macro(cx.tcx.sess.source_map())
+                    && !is_ctxt_in_external_macro(cx.tcx.sess, ctxt)
                     && !is_from_proc_macro(cx, e) =>
             {
                 let (msg, help) = if let ExprKind::Array(_) = e.kind {
