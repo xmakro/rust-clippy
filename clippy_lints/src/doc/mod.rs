@@ -1124,6 +1124,11 @@ fn check_doc<'a, Events: Iterator<Item = (pulldown_cmark::Event<'a>, Range<usize
 
     let mut containers = Vec::new();
 
+    // `DOC_MARKDOWN` is allow-by-default (pedantic); skip collecting text and the per-word scan
+    // when it is allowed. Note that `ticks_unbalanced` is still tracked, as it also gates the
+    // header detection and the other lints in the `Text` arm below.
+    let check_doc_markdown = !clippy_utils::is_lint_allowed(cx, DOC_MARKDOWN, cx.last_node_with_lint_attrs);
+
     let mut events = events.peekable();
 
     while let Some((event, range)) = events.next() {
@@ -1238,7 +1243,10 @@ fn check_doc<'a, Events: Iterator<Item = (pulldown_cmark::Event<'a>, Range<usize
                 if let End(TagEnd::Item) = event {
                     containers.pop();
                 }
-                if ticks_unbalanced && let Some(span) = fragments.span(cx, paragraph_range.clone()) {
+                if check_doc_markdown
+                    && ticks_unbalanced
+                    && let Some(span) = fragments.span(cx, paragraph_range.clone())
+                {
                     span_lint_and_help(
                         cx,
                         DOC_MARKDOWN,
@@ -1331,7 +1339,9 @@ fn check_doc<'a, Events: Iterator<Item = (pulldown_cmark::Event<'a>, Range<usize
                         // Don't check the text associated with external URLs
                         continue;
                     }
-                    text_to_check.push((text, range.clone(), code_level));
+                    if check_doc_markdown {
+                        text_to_check.push((text, range.clone(), code_level));
+                    }
                     doc_suspicious_footnotes::check(cx, doc, range, &fragments, attrs);
                 }
             }
