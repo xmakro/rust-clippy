@@ -191,14 +191,21 @@ impl Ranges {
 impl<'tcx> LateLintPass<'tcx> for Ranges {
     fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'_>) {
         if let ExprKind::Binary(ref op, l, r) = expr.kind
+            && matches!(
+                op.node,
+                BinOpKind::And | BinOpKind::BitAnd | BinOpKind::Or | BinOpKind::BitOr
+            )
             && self.msrv.meets(cx, msrvs::RANGE_CONTAINS)
+            && !is_in_const_context(cx)
         {
             check_possible_range_contains(cx, op.node, l, r, expr, expr.span);
         }
 
-        check_exclusive_range_plus_one(cx, expr);
-        check_inclusive_range_minus_one(cx, expr);
-        check_reversed_empty_range(cx, expr);
+        if let Some(range) = higher::Range::hir(cx, expr) {
+            check_exclusive_range_plus_one(cx, expr, &range);
+            check_inclusive_range_minus_one(cx, expr, &range);
+            check_reversed_empty_range(cx, expr, &range);
+        }
     }
 }
 
@@ -210,10 +217,6 @@ fn check_possible_range_contains(
     expr: &Expr<'_>,
     span: Span,
 ) {
-    if is_in_const_context(cx) {
-        return;
-    }
-
     let combine_and = match op {
         BinOpKind::And | BinOpKind::BitAnd => true,
         BinOpKind::Or | BinOpKind::BitOr => false,
@@ -481,10 +484,11 @@ fn can_switch_ranges<'tcx>(
 }
 
 // exclusive range plus one: `x..(y+1)`
-fn check_exclusive_range_plus_one<'tcx>(cx: &LateContext<'tcx>, expr: &'tcx Expr<'_>) {
+fn check_exclusive_range_plus_one<'tcx>(cx: &LateContext<'tcx>, expr: &'tcx Expr<'_>, range: &higher::Range<'tcx>) {
     check_range_switch(
         cx,
         expr,
+        range,
         RangeLimits::HalfOpen,
         y_plus_one,
         RANGE_PLUS_ONE,
@@ -494,10 +498,11 @@ fn check_exclusive_range_plus_one<'tcx>(cx: &LateContext<'tcx>, expr: &'tcx Expr
 }
 
 // inclusive range minus one: `x..=(y-1)`
-fn check_inclusive_range_minus_one<'tcx>(cx: &LateContext<'tcx>, expr: &'tcx Expr<'_>) {
+fn check_inclusive_range_minus_one<'tcx>(cx: &LateContext<'tcx>, expr: &'tcx Expr<'_>, range: &higher::Range<'tcx>) {
     check_range_switch(
         cx,
         expr,
+        range,
         RangeLimits::Closed,
         y_minus_one,
         RANGE_MINUS_ONE,
@@ -511,19 +516,19 @@ fn check_inclusive_range_minus_one<'tcx>(cx: &LateContext<'tcx>, expr: &'tcx Exp
 fn check_range_switch<'tcx>(
     cx: &LateContext<'tcx>,
     expr: &'tcx Expr<'_>,
+    range: &higher::Range<'tcx>,
     kind: RangeLimits,
     predicate: impl for<'hir> FnOnce(&Expr<'hir>) -> Option<&'hir Expr<'hir>>,
     lint: &'static Lint,
     msg: &'static str,
     operator: &str,
 ) {
-    if let Some(range) = higher::Range::hir(cx, expr)
-        && let higher::Range {
-            start,
-            end: Some(end),
-            limits,
-            span,
-        } = range
+    if let higher::Range {
+        start,
+        end: Some(end),
+        limits,
+        span,
+    } = *range
         && span.can_be_used_for_suggestions()
         && limits == kind
         && let Some(y) = predicate(end)
@@ -550,7 +555,7 @@ fn check_range_switch<'tcx>(
     }
 }
 
-fn check_reversed_empty_range(cx: &LateContext<'_>, expr: &Expr<'_>) {
+fn check_reversed_empty_range(cx: &LateContext<'_>, expr: &Expr<'_>, range: &higher::Range<'_>) {
     fn inside_indexing_expr(cx: &LateContext<'_>, expr: &Expr<'_>) -> bool {
         matches!(
             get_parent_expr(cx, expr),
@@ -580,12 +585,12 @@ fn check_reversed_empty_range(cx: &LateContext<'_>, expr: &Expr<'_>) {
         }
     }
 
-    if let Some(higher::Range {
+    if let higher::Range {
         start: Some(start),
         end: Some(end),
         limits,
         span,
-    }) = higher::Range::hir(cx, expr)
+    } = *range
         && let ty = cx.typeck_results().expr_ty(start)
         && let ty::Int(_) | ty::Uint(_) = ty.kind()
         && let ecx = ConstEvalCtxt::new(cx)
