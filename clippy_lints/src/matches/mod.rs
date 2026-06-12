@@ -1089,7 +1089,7 @@ impl<'tcx> LateLintPass<'tcx> for Matches {
                     if !(self.msrv.meets(cx, msrvs::MATCHES_MACRO)
                         && match_like_matches::check_match(cx, expr, ex, arms))
                     {
-                        match_same_arms::check(cx, arms);
+                        match_same_arms::check(cx, expr, arms);
                     }
 
                     redundant_pattern_match::check_match(cx, expr, ex, arms);
