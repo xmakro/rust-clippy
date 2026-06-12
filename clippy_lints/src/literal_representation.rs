@@ -1,5 +1,6 @@
 use clippy_config::Conf;
 use clippy_utils::diagnostics::span_lint_and_then;
+use clippy_utils::macros::is_in_external_macro;
 use clippy_utils::numeric_literal::{NumericLiteral, Radix};
 use clippy_utils::source::SpanRangeExt;
 use rustc_ast::ast::{Expr, ExprKind, LitKind};
@@ -208,7 +209,7 @@ pub struct LiteralDigitGrouping {
 impl EarlyLintPass for LiteralDigitGrouping {
     fn check_expr(&mut self, cx: &EarlyContext<'_>, expr: &Expr) {
         if let ExprKind::Lit(lit) = expr.kind
-            && !expr.span.in_external_macro(cx.sess().source_map())
+            && !is_in_external_macro(cx.sess(), expr.span)
         {
             self.check_lit(cx, lit, expr.span);
         }
@@ -419,7 +420,7 @@ pub struct DecimalLiteralRepresentation {
 impl EarlyLintPass for DecimalLiteralRepresentation {
     fn check_expr(&mut self, cx: &EarlyContext<'_>, expr: &Expr) {
         if let ExprKind::Lit(lit) = expr.kind
-            && !expr.span.in_external_macro(cx.sess().source_map())
+            && !is_in_external_macro(cx.sess(), expr.span)
         {
             self.check_lit(cx, lit, expr.span);
         }
