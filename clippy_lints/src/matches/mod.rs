@@ -1052,12 +1052,14 @@ impl Matches {
 impl<'tcx> LateLintPass<'tcx> for Matches {
     #[expect(clippy::too_many_lines)]
     fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'_>) {
-        if is_direct_expn_of(expr.span, sym::matches).is_none() && expr.span.in_external_macro(cx.sess().source_map()) {
-            return;
-        }
         let from_expansion = expr.span.from_expansion();
 
         if let ExprKind::Match(ex, arms, source) = expr.kind {
+            if is_direct_expn_of(expr.span, sym::matches).is_none()
+                && expr.span.in_external_macro(cx.sess().source_map())
+            {
+                return;
+            }
             if is_direct_expn_of(expr.span, sym::matches).is_some()
                 && let [arm, _] = arms
             {
@@ -1139,6 +1141,9 @@ impl<'tcx> LateLintPass<'tcx> for Matches {
                 match_ref_pats::check(cx, ex, arms.iter().map(|el| el.pat), expr);
             }
         } else if let Some(if_let) = higher::IfLet::hir(cx, expr) {
+            if expr.span.in_external_macro(cx.sess().source_map()) {
+                return;
+            }
             collapsible_match::check_if_let(
                 cx,
                 if_let.let_span.ctxt(),

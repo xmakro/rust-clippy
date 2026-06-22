@@ -39,20 +39,19 @@ declare_lint_pass!(UninhabitedReferences => [UNINHABITED_REFERENCES]);
 
 impl LateLintPass<'_> for UninhabitedReferences {
     fn check_expr(&mut self, cx: &LateContext<'_>, expr: &'_ Expr<'_>) {
-        if expr.span.in_external_macro(cx.tcx.sess.source_map()) {
-            return;
-        }
-
-        if let ExprKind::Unary(UnOp::Deref, _) = expr.kind {
-            let ty = cx.typeck_results().expr_ty_adjusted(expr);
-            if ty.is_privately_uninhabited(cx.tcx, cx.typing_env()) {
-                span_lint(
-                    cx,
-                    UNINHABITED_REFERENCES,
-                    expr.span,
-                    "dereferencing a reference to an uninhabited type is undefined behavior",
-                );
-            }
+        if let ExprKind::Unary(UnOp::Deref, _) = expr.kind
+            && cx
+                .typeck_results()
+                .expr_ty_adjusted(expr)
+                .is_privately_uninhabited(cx.tcx, cx.typing_env())
+            && !expr.span.in_external_macro(cx.tcx.sess.source_map())
+        {
+            span_lint(
+                cx,
+                UNINHABITED_REFERENCES,
+                expr.span,
+                "dereferencing a reference to an uninhabited type is undefined behavior",
+            );
         }
     }
 

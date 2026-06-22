@@ -21,6 +21,7 @@ pub(super) fn check<'tcx>(cx: &LateContext<'tcx>, expr: &Expr<'tcx>, msrv: Msrv)
         start_ty,
         end_ty,
     }) = expr_cast_chain_tys(cx, expr)
+        && !expr.span.in_external_macro(cx.tcx.sess.source_map())
         && let (Ok(from_layout), Ok(to_layout)) = (cx.layout_of(start_ty.ty), cx.layout_of(end_ty.ty))
     {
         let from_size = from_layout.size.bytes();

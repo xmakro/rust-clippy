@@ -71,15 +71,15 @@ impl DurationSuboptimalUnits {
 
 impl LateLintPass<'_> for DurationSuboptimalUnits {
     fn check_expr(&mut self, cx: &LateContext<'_>, expr: &'_ Expr<'_>) {
-        if !expr.span.in_external_macro(cx.sess().source_map())
-            // Check if a function on std::time::Duration is called
-            && let ExprKind::Call(func, [arg]) = expr.kind
+        // Check if a function on std::time::Duration is called
+        if let ExprKind::Call(func, [arg]) = expr.kind
             && let ExprKind::Path(QPath::TypeRelative(func_ty, func_name)) = func.kind
             && cx
                 .typeck_results()
                 .node_type(func_ty.hir_id)
                 .is_diag_item(cx, sym::Duration)
             && matches!(cx.typeck_results().expr_ty_adjusted(arg).kind(), ty::Uint(UintTy::U64))
+            && !expr.span.in_external_macro(cx.sess().source_map())
             // We intentionally don't want to evaluate referenced constants, as we don't want to
             // recommend a literal value over using constants:
             //

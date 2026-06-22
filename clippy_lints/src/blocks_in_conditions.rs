@@ -53,10 +53,6 @@ const BRACED_EXPR_MESSAGE: &str = "omit braces around single expression conditio
 
 impl<'tcx> LateLintPass<'tcx> for BlocksInConditions {
     fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'_>) {
-        if expr.span.in_external_macro(cx.sess().source_map()) {
-            return;
-        }
-
         let Some((cond, keyword, desc)) = higher::If::hir(expr)
             .map(|hif| (hif.cond, "if", "an `if` condition"))
             .or(if let ExprKind::Match(match_ex, _, MatchSource::Normal) = expr.kind {
@@ -67,10 +63,6 @@ impl<'tcx> LateLintPass<'tcx> for BlocksInConditions {
         else {
             return;
         };
-        let complex_block_message = format!(
-            "in {desc}, avoid complex blocks or closures with blocks; \
-            instead, move the block or closure higher and bind it with a `let`",
-        );
 
         if let ExprKind::Block(block, _) = &cond.kind {
             if !block.span.eq_ctxt(expr.span) {
@@ -78,6 +70,13 @@ impl<'tcx> LateLintPass<'tcx> for BlocksInConditions {
                 // do not lint.
                 return;
             }
+            if expr.span.in_external_macro(cx.sess().source_map()) {
+                return;
+            }
+            let complex_block_message = format!(
+                "in {desc}, avoid complex blocks or closures with blocks; \
+                instead, move the block or closure higher and bind it with a `let`",
+            );
             if block.rules == BlockCheckMode::DefaultBlock {
                 if block.stmts.is_empty() {
                     if let Some(ex) = &block.expr {

@@ -86,6 +86,7 @@ pub(super) fn check_null_ptr_cast_method(cx: &LateContext<'_>, expr: &Expr<'_>) 
             (Some(sym::ptr_null_mut), sym::cast_const) => "null",
             _ => return,
         }
+        && !expr.span.in_external_macro(cx.tcx.sess.source_map())
         && let Some(prefix) = std_or_core(cx)
         && let mut app = Applicability::MachineApplicable
         && let sugg = snippet_with_applicability(cx, cast_from_expr.span, "_", &mut app)

@@ -17,6 +17,7 @@ pub(super) fn check_cast_method(cx: &LateContext<'_>, expr: &Expr<'_>) {
         && method_path.ident.name == sym::cast
         && let Some(generic_args) = method_path.args
         && let [GenericArg::Type(cast_to)] = generic_args.args
+        && !expr.span.in_external_macro(cx.tcx.sess.source_map())
         // There probably is no obvious reason to do this, just to be consistent with `as` cases.
         && !is_hir_ty_cfg_dependant(cx, cast_to.as_unambig_ty())
     {
