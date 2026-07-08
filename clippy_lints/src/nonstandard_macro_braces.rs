@@ -9,7 +9,7 @@ use rustc_hir::def_id::DefId;
 use rustc_lint::{EarlyContext, EarlyLintPass};
 use rustc_session::impl_lint_pass;
 use rustc_span::Span;
-use rustc_span::hygiene::{ExpnKind, MacroKind};
+use rustc_span::hygiene::{ExpnKind, MacroKind, SyntaxContext};
 
 declare_clippy_lint! {
     /// ### What it does
@@ -45,6 +45,13 @@ struct MacroInfo {
 pub struct MacroBraces {
     macro_braces: FxHashMap<String, (char, char)>,
     done: FxHashSet<Span>,
+    /// Syntax contexts for which `is_offending_macro` returned `None`.
+    ///
+    /// Every node produced by one expansion shares a syntax context, so without this memo the
+    /// expansion walk repeats for each of them. The walk's result depends only on the context
+    /// and on `done`, and `done` only ever grows, which can only turn more results into `None`,
+    /// so a recorded `None` stays valid for the rest of the pass.
+    none_ctxts: FxHashSet<SyntaxContext>,
 }
 
 impl MacroBraces {
@@ -52,6 +59,7 @@ impl MacroBraces {
         Self {
             macro_braces: macro_braces(&conf.standard_macro_braces),
             done: FxHashSet::default(),
+            none_ctxts: FxHashSet::default(),
         }
     }
 }
@@ -114,7 +122,12 @@ impl EarlyLintPass for MacroBraces {
     }
 }
 
-fn is_offending_macro(cx: &EarlyContext<'_>, span: Span, mac_braces: &MacroBraces) -> Option<MacroInfo> {
+fn is_offending_macro(cx: &EarlyContext<'_>, span: Span, mac_braces: &mut MacroBraces) -> Option<MacroInfo> {
+    let initial_ctxt = span.ctxt();
+    if initial_ctxt.is_root() || mac_braces.none_ctxts.contains(&initial_ctxt) {
+        return None;
+    }
+
     let unnested_or_local = |span: Span| {
         !span.from_expansion()
             || span
@@ -123,7 +136,7 @@ fn is_offending_macro(cx: &EarlyContext<'_>, span: Span, mac_braces: &MacroBrace
                 .is_some_and(|e| e.macro_def_id.is_some_and(DefId::is_local))
     };
 
-    let mut ctxt = span.ctxt();
+    let mut ctxt = initial_ctxt;
     while !ctxt.is_root() {
         let expn_data = ctxt.outer_expn_data();
         if let ExpnKind::Macro(MacroKind::Bang, mac_name) = expn_data.kind
@@ -149,6 +162,7 @@ fn is_offending_macro(cx: &EarlyContext<'_>, span: Span, mac_braces: &MacroBrace
         ctxt = expn_data.call_site.ctxt();
     }
 
+    mac_braces.none_ctxts.insert(initial_ctxt);
     None
 }
 
