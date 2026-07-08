@@ -269,6 +269,8 @@ def classify(body, var):
             continue
         if PURE_LET.match(st) and not seen_kind_block:
             continue
+        if re.match(r'^use [\w:{}, ]+;$', st) and not seen_kind_block:
+            continue
         ks = kinds_of_if_stmt(st, var)
         if ks is None:
             ks = kinds_of_match_stmt(st, var)
@@ -280,6 +282,27 @@ def classify(body, var):
         return ("kinds", sorted(kinds))
     return ("always", [])
 
+# Hand-audited kind sets for passes whose check_expr the scanner cannot prove.
+# Every entry documents the audit; re-audit when the pass's check_expr changes.
+MANUAL_KINDS = {
+    # if-let ExprKind::Match branch, else-if higher::IfLet::hir (ExprKind::If with a Let
+    # condition), then higher::WhileLet::hir twice (ExprKind::Loop while-let desugar); the
+    # leading guard and span binding are pure.
+    "Matches": ["Match", "If", "Loop"],
+    # higher::ForLoop::hir matches ExprKind::DropTemps; the explicit branches match
+    # ExprKind::Loop; while_let_on_iterator and higher::While/WhileLet resolve to
+    # ExprKind::Loop; the final branch matches ExprKind::MethodCall.
+    "Loops": ["DropTemps", "Loop", "MethodCall"],
+    # if-let ExprKind::Cast branch; borrow_as_ptr::check_implicit_cast matches AddrOf;
+    # cast_slice_from_raw_parts::check_implicit_cast and cast_slice_different_sizes use
+    # expr.peel_blocks() and so also react to Block and Call; cast_ptr_alignment and
+    # ptr_cast_constness method checks match MethodCall.
+    "Casts": ["Cast", "Call", "MethodCall", "AddrOf", "Block"],
+    # misc: used_underscore_binding matches Path and Field, used_underscore_items matches
+    # Call, MethodCall and Struct; the shared context guard only returns early.
+    "LintPass": ["Path", "Field", "Call", "MethodCall", "Struct"],
+}
+
 verdicts = {}
 for field, ty in entries:
     path, tyname = module_file(ty)
@@ -288,6 +311,10 @@ for field, ty in entries:
         continue
     body, var = find_check_expr(path, tyname)
     kind, ks = classify(body, var) if body is not None else ("none", [])
+    if field in MANUAL_KINDS:
+        if kind == "kinds":
+            print(f"note: {field} is provable automatically now; drop its manual entry", file=sys.stderr)
+        kind, ks = "kinds", MANUAL_KINDS[field]
     verdicts[field] = (kind, ks, ty)
 
 n_none = sum(1 for v in verdicts.values() if v[0]=="none")
