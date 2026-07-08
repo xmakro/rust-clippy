@@ -205,6 +205,24 @@ thread_local! {
         RefCell::new(FxHashMap::default());
 }
 
+/// The innermost macro call in the expansion chain of `span`, cached per syntax context for the
+/// same reasons as [`root_macro_call`].
+fn first_macro_call_cached(span: Span) -> Option<MacroCall> {
+    if !span.from_expansion() {
+        return None;
+    }
+    FIRST_MACRO_CALL_CACHE.with_borrow_mut(|cache| {
+        *cache
+            .entry(span.ctxt())
+            .or_insert_with(|| macro_backtrace(span).next())
+    })
+}
+
+thread_local! {
+    static FIRST_MACRO_CALL_CACHE: RefCell<FxHashMap<SyntaxContext, Option<MacroCall>>> =
+        RefCell::new(FxHashMap::default());
+}
+
 /// A combination of [`root_macro_call`] and
 /// [`is_diagnostic_item`](rustc_middle::ty::TyCtxt::is_diagnostic_item) that returns a `MacroCall`
 /// at the root expansion if only it matches the given name.
@@ -283,7 +301,10 @@ fn first_node_in_macro_uncached(cx: &LateContext<'_>, node: &impl HirNode) -> Op
         Some((_, Node::Stmt(_))) => parent_iter.next().map(|(id, _)| id),
         Some((id, _)) => Some(id),
     };
-    let parent_span = parent_id.map(|id| cx.tcx.hir_span(id));
+    // Only the context of the parent span matters below (both the equality fast path and the
+    // macro backtrace are functions of it), and the raw node span shares the context of the
+    // adjusted one `hir_span` computes, without its ancestor searches.
+    let parent_span = parent_id.map(|id| cx.tcx.hir_span_with_body(id));
 
     // If the parent is in the same syntax context, `node` cannot be the first node of an
     // expansion: the macro backtrace is determined by the syntax context alone, so both spans
@@ -298,7 +319,7 @@ fn first_node_in_macro_uncached(cx: &LateContext<'_>, node: &impl HirNode) -> Op
 
     // get the macro expansion or return `None` if not found
     // `macro_backtrace` importantly ignores desugaring expansions
-    let expn = macro_backtrace(span).next()?.expn;
+    let expn = first_macro_call_cached(span)?.expn;
 
     // if the parent is not found, it is sensible to return `Some(root)`
     let Some(parent_span) = parent_span else {
@@ -306,7 +327,7 @@ fn first_node_in_macro_uncached(cx: &LateContext<'_>, node: &impl HirNode) -> Op
     };
 
     // get the macro expansion of the parent node
-    let Some(parent_macro_call) = macro_backtrace(parent_span).next() else {
+    let Some(parent_macro_call) = first_macro_call_cached(parent_span) else {
         // the parent node is not in a macro
         return Some(ExpnId::root());
     };
