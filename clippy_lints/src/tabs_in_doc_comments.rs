@@ -100,48 +100,24 @@ impl EarlyLintPass for TabsInDocComments {
 fn get_chunks_of_tabs(the_str: &str) -> Vec<(u32, u32)> {
     let line_length_way_to_long = "doc comment longer than 2^32 chars";
     let mut spans: Vec<(u32, u32)> = vec![];
-    let mut current_start: u32 = 0;
 
-    // tracker to decide if the last group of tabs is not closed by a non-tab character
-    let mut is_active = false;
-
-    // Note that we specifically need the char _byte_ indices here, not the positional indexes
-    // within the char array to deal with multi-byte characters properly. `char_indices` does
-    // exactly that. It provides an iterator over tuples of the form `(byte position, char)`.
-    let char_indices: Vec<_> = the_str.char_indices().collect();
-
-    if let [(_, '\t')] = char_indices.as_slice() {
-        return vec![(0, 1)];
-    }
-
-    for entry in char_indices.windows(2) {
-        match entry {
-            [(_, '\t'), (_, '\t')] => {
-                // either string starts with double tab, then we have to set it active,
-                // otherwise is_active is true anyway
-                is_active = true;
-            },
-            [(_, _), (index_b, '\t')] => {
-                // as ['\t', '\t'] is excluded, this has to be a start of a tab group,
-                // set indices accordingly
-                is_active = true;
-                current_start = u32::try_from(*index_b).unwrap();
-            },
-            [(_, '\t'), (index_b, _)] => {
-                // this now has to be an end of the group, hence we have to push a new tuple
-                is_active = false;
-                spans.push((current_start, u32::try_from(*index_b).unwrap()));
-            },
-            _ => {},
+    // A tab is a single byte in UTF-8 and no other character's encoding contains that byte, so
+    // tab groups can be located on the raw bytes and every position found is a char boundary.
+    // `str::find` uses a fast single-byte search, and most doc comments contain no tab at all,
+    // so they are scanned once without any allocation.
+    let bytes = the_str.as_bytes();
+    let mut pos = 0;
+    while let Some(offset) = the_str[pos..].find('\t') {
+        let start = pos + offset;
+        let mut end = start + 1;
+        while bytes.get(end) == Some(&b'\t') {
+            end += 1;
         }
-    }
-
-    // only possible when tabs are at the end, insert last group
-    if is_active {
         spans.push((
-            current_start,
-            u32::try_from(char_indices.last().unwrap().0 + 1).expect(line_length_way_to_long),
+            u32::try_from(start).expect(line_length_way_to_long),
+            u32::try_from(end).expect(line_length_way_to_long),
         ));
+        pos = end;
     }
 
     spans
