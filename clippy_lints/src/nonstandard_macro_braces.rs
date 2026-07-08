@@ -4,6 +4,7 @@ use clippy_utils::diagnostics::span_lint_and_sugg;
 use clippy_utils::source::{SourceText, SpanExt};
 use rustc_ast::ast;
 use rustc_data_structures::fx::{FxHashMap, FxHashSet};
+use rustc_data_structures::smallvec::SmallVec;
 use rustc_errors::Applicability;
 use rustc_hir::def_id::DefId;
 use rustc_lint::{EarlyContext, EarlyLintPass};
@@ -123,11 +124,6 @@ impl EarlyLintPass for MacroBraces {
 }
 
 fn is_offending_macro(cx: &EarlyContext<'_>, span: Span, mac_braces: &mut MacroBraces) -> Option<MacroInfo> {
-    let initial_ctxt = span.ctxt();
-    if initial_ctxt.is_root() || mac_braces.none_ctxts.contains(&initial_ctxt) {
-        return None;
-    }
-
     let unnested_or_local = |span: Span| {
         !span.from_expansion()
             || span
@@ -136,8 +132,19 @@ fn is_offending_macro(cx: &EarlyContext<'_>, span: Span, mac_braces: &mut MacroB
                 .is_some_and(|e| e.macro_def_id.is_some_and(DefId::is_local))
     };
 
-    let mut ctxt = initial_ctxt;
+    // Contexts visited by this walk. Their chains are all suffixes of this one, so when the
+    // walk ends without finding an offending macro every one of them is known to yield `None`
+    // too and gets recorded at once, and conversely a chain that reaches an already recorded
+    // context can stop right there.
+    let mut visited = SmallVec::<[SyntaxContext; 8]>::new();
+
+    let mut ctxt = span.ctxt();
     while !ctxt.is_root() {
+        if mac_braces.none_ctxts.contains(&ctxt) {
+            break;
+        }
+        visited.push(ctxt);
+
         let expn_data = ctxt.outer_expn_data();
         if let ExpnKind::Macro(MacroKind::Bang, mac_name) = expn_data.kind
         && let name = mac_name.as_str()
@@ -162,7 +169,7 @@ fn is_offending_macro(cx: &EarlyContext<'_>, span: Span, mac_braces: &mut MacroB
         ctxt = expn_data.call_site.ctxt();
     }
 
-    mac_braces.none_ctxts.insert(initial_ctxt);
+    mac_braces.none_ctxts.extend(visited);
     None
 }
 
