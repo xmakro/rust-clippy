@@ -38,6 +38,11 @@ def matching_brace(s, i):
             while j < n and s[j] != '"':
                 if s[j] == '\\': j += 1
                 j += 1
+        elif c == "'" and j+2 < n and s[j+1] != '\\' and s[j+2] == "'":
+            j += 2
+        elif c == "'" and j+3 < n and s[j+1] == '\\':
+            j += 1
+            while j < n and s[j] != "'": j += 1
         elif c == '/' and j+1 < n and s[j+1] == '/':
             while j < n and s[j] != '\n': j += 1
         elif c == '/' and j+1 < n and s[j+1] == '*':
@@ -85,7 +90,11 @@ def find_check_expr(path, ty):
             return strip_comments(block[bstart+1:bend-1]).strip(), fm.group(1)
     return None, None
 
-PURE_CONJ = re.compile(r'^!?\s*(?:\w+\.)*\w+\.span\.from_expansion\(\)$|^!?\s*(?:\w+\.)*span\.from_expansion\(\)$|^!?\s*is_in_external_macro\([^()]*\)$|^!?\s*\w+\.span\.in_external_macro\([^()]*(?:\(\))?[^()]*\)$')
+PURE_CONJ = re.compile(
+    r'^!?\s*(?:\w+\.)*span(?:\(\))?\.from_expansion\(\)$'
+    r'|^!?\s*is_in_external_macro\(.*\)$'
+    r'|^!?\s*(?:\w+\.)*span\.in_external_macro\(.*\)$'
+)
 
 def split_conjuncts(cond):
     """split on top-level &&"""
@@ -101,11 +110,144 @@ def split_conjuncts(cond):
     out.append(cur.strip())
     return out
 
+def top_level_statements(b):
+    """split body into top-level statements (string-of-text chunks)."""
+    stmts, depth, start = [], 0, 0
+    i, n = 0, len(b)
+    while i < n:
+        c = b[i]
+        if c in '([{': depth += 1
+        elif c in ')]}':
+            depth -= 1
+            if depth == 0 and c == '}':
+                # end of a block statement (if/match/...) unless followed by `else`
+                j = i + 1
+                while j < n and b[j] in ' \n\t': j += 1
+                if b[j:j+4] =='else' or b[j:j+1] in (';', ',', '.', '?'):
+                    i = j; continue
+                stmts.append(b[start:i+1].strip()); start = i+1
+        elif c == ';' and depth == 0:
+            stmts.append(b[start:i+1].strip()); start = i+1
+        elif c == '"':
+            i += 1
+            while i < n and b[i] != '"':
+                if b[i] == '\\': i += 1
+                i += 1
+        elif c == "'" and i+2 < n and b[i+1] != '\\' and b[i+2] == "'":
+            i += 2
+        elif c == "'" and i+3 < n and b[i+1] == '\\':
+            i += 1
+            while i < n and b[i] != "'": i += 1
+        i += 1
+    tail = b[start:].strip()
+    if tail: stmts.append(tail)
+    return stmts
+
+PURE_TXT = re.compile(r'^[!\s]*[\w\.\(\)::&, ]*$')
+def is_pure_guard_cond(cond):
+    for cj in split_conjuncts(cond):
+        if not (PURE_CONJ.match(cj)
+                or re.match(r'^!?\s*is_direct_expn_of\([^;{}]*\)\.is_(none|some)\(\)$', cj)):
+            return False
+    return True
+
+PURE_LET = re.compile(r'^let\s+\w+\s*=\s*[\w\.]+\.span\.from_expansion\(\)\s*;$|^let\s+\w+\s*=\s*[\w\.]+\.span\(\)\.from_expansion\(\)\s*;$')
+
+def kinds_of_if_stmt(stmt, var):
+    """form-A single if statement -> kinds or None"""
+    if not stmt.startswith('if '):
+        return None
+    depth = 0; obr = None; i = 2
+    while i < len(stmt):
+        c = stmt[i]
+        if c in '([': depth += 1
+        elif c in ')]': depth -= 1
+        elif c == '{' and depth == 0:
+            obr = i; break
+        i += 1
+    if obr is None: return None
+    cond = stmt[3:obr].strip()
+    body_end = matching_brace(stmt, obr)
+    if stmt[body_end:].strip():
+        return None  # else or trailing junk inside this statement chunk
+    conjs = split_conjuncts(cond)
+    for idx0, cj in enumerate(conjs):
+        lm = re.match(rf'let\s+(.+?)\s*=\s*&?{var}\.kind$', cj, re.S)
+        if lm:
+            pat = lm.group(1)
+            ks = sorted(set(re.findall(r'ExprKind::(\w+)', pat)))
+            alts = [a.strip() for a in re.split(r'\|(?![\|])', pat)] if pat.count('|') else [pat.strip()]
+            if not ks or any(k not in KINDS for k in ks):
+                return None
+            if not all(a.startswith('ExprKind::') or a.startswith('hir::ExprKind::') for a in alts):
+                return None
+            for prev in conjs[:idx0]:
+                if not (PURE_CONJ.match(prev) or re.match(r'^!?\s*\w+$', prev)):
+                    return None
+            return ks
+    return None
+
+def kinds_of_match_stmt(stmt, var):
+    """match var.kind { arms } with empty-or-absent wildcard -> kinds or None"""
+    m0 = re.match(rf'match\s+&?{var}\.kind\s*\{{', stmt)
+    if not m0:
+        return None
+    obr = stmt.index('{', m0.start())
+    end = matching_brace(stmt, obr)
+    if stmt[end:].strip():
+        return None
+    arms_text = stmt[obr+1:end-1]
+    # split arms at top level on '=>' boundaries: simpler heuristic, split arm heads by scanning
+    kinds = set()
+    i, n, depth = 0, len(arms_text), 0
+    head_start = 0
+    while i < n:
+        c = arms_text[i]
+        if c in '([{': depth += 1
+        elif c in ')]}': depth -= 1
+        elif depth == 0 and arms_text[i:i+2] == '=>':
+            head = arms_text[head_start:i].strip()
+            # strip guard
+            head_nog = head.split(' if ')[0].strip()
+            body_start = i + 2
+            # arm body: block or expression to top-level comma
+            j = body_start
+            while j < n and arms_text[j] in ' \n\t': j += 1
+            if j < n and arms_text[j] == '{':
+                bend = matching_brace(arms_text, j)
+                body = arms_text[j+1:bend-1].strip()
+                k = bend
+                while k < n and arms_text[k] in ' ,\n\t': k += 1
+            else:
+                d2 = 0; k = j
+                while k < n:
+                    ch = arms_text[k]
+                    if ch in '([{': d2 += 1
+                    elif ch in ')]}': d2 -= 1
+                    elif ch == ',' and d2 == 0: break
+                    k += 1
+                body = arms_text[j:k].strip()
+                k += 1
+            if head_nog == '_' or not head_nog.startswith(('ExprKind::', 'hir::ExprKind::')):
+                # wildcard/binding arm must be empty
+                if body not in ('', '()', '{}'):
+                    return None
+            else:
+                ks = set(re.findall(r'ExprKind::(\w+)', head_nog))
+                if not ks or any(kk not in KINDS for kk in ks):
+                    return None
+                kinds |= ks
+            head_start = k
+            i = k
+            continue
+        i += 1
+    return sorted(kinds) if kinds else None
+
 def classify(body, var):
     if body is None:
         return ("none", [])
     b = body.strip()
-    # form B: let <pat> = var.kind else { <diverge> }; rest...
+    # form B: let <pat> = var.kind else { return };  followed by anything
     mb = re.match(rf'let\s+(.+?)\s*=\s*{var}\.kind\s+else\s*\{{', b, re.S)
     if mb:
         pat = mb.group(1)
@@ -115,50 +257,27 @@ def classify(body, var):
         if kinds and all(k in KINDS for k in kinds) and re.fullmatch(r'return\s*;?', else_body):
             return ("kinds", kinds)
         return ("always", [])
-    # form A: entire body is one if-expression, no else, nothing after
-    if not b.startswith('if '):
+    # form C: [pure guard returns / pure lets]* then [kind-gated ifs / kind matches]+, nothing else
+    stmts = top_level_statements(b)
+    if not stmts:
         return ("always", [])
-    # find the opening brace of the if body at depth 0 of parens
-    depth = 0
-    obr = None
-    i = 2
-    while i < len(b):
-        c = b[i]
-        if c in '([': depth += 1
-        elif c in ')]': depth -= 1
-        elif c == '{' and depth == 0:
-            obr = i; break
-        elif c == '|' and b[i:i+2] == '|' and depth == 0:
-            pass
-        i += 1
-    if obr is None: return ("always", [])
-    cond = b[3:obr].strip()
-    body_end = matching_brace(b, obr)
-    tail = b[body_end:].strip()
-    if tail:  # else clause or trailing statements
-        return ("always", [])
-    conjs = split_conjuncts(cond)
-    kinds = None
-    for idx, cj in enumerate(conjs):
-        lm = re.match(rf'let\s+(.+?)\s*=\s*{var}\.kind$', cj, re.S) or \
-             re.match(rf'let\s+(.+?)\s*=\s*&?{var}\.kind$', cj, re.S)
-        if lm:
-            pat = lm.group(1)
-            ks = sorted(set(re.findall(r'ExprKind::(\w+)', pat)))
-            # pattern must be pure ExprKind alternatives (all top-level alternatives start with ExprKind::)
-            alts = [a.strip() for a in re.split(r'\|(?![\|])', pat)] if pat.count('|') else [pat.strip()]
-            if not ks or any(k not in KINDS for k in ks):
-                return ("always", [])
-            if not all(a.startswith('ExprKind::') or a.startswith('hir::ExprKind::') for a in alts):
-                return ("always", [])
-            # all conjuncts BEFORE must be pure span tests
-            for prev in conjs[:idx]:
-                if not PURE_CONJ.match(prev):
-                    return ("always", [])
-            kinds = ks
-            break
-    if kinds:
-        return ("kinds", kinds)
+    kinds = set()
+    seen_kind_block = False
+    for st in stmts:
+        gm = re.match(r'if\s+(.+?)\s*\{\s*return\s*;?\s*\}$', st, re.S)
+        if gm and not seen_kind_block and is_pure_guard_cond(gm.group(1).strip()):
+            continue
+        if PURE_LET.match(st) and not seen_kind_block:
+            continue
+        ks = kinds_of_if_stmt(st, var)
+        if ks is None:
+            ks = kinds_of_match_stmt(st, var)
+        if ks is None:
+            return ("always", [])
+        kinds |= set(ks)
+        seen_kind_block = True
+    if seen_kind_block and kinds:
+        return ("kinds", sorted(kinds))
     return ("always", [])
 
 verdicts = {}

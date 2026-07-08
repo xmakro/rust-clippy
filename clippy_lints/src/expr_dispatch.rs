@@ -25,25 +25,19 @@ macro_rules! combined_check_expr_dispatch {
         $crate::run_check_expr_field!($self, Author, $cx, $e);
         $crate::run_check_expr_field!($self, SerdeApi, $cx, $e);
         $crate::run_check_expr_field!($self, Types, $cx, $e);
-        $crate::run_check_expr_field!($self, NonminimalBool, $cx, $e);
         $crate::run_check_expr_field!($self, UnportableVariant, $cx, $e);
         $crate::run_check_expr_field!($self, NeedlessBool, $cx, $e);
-        $crate::run_check_expr_field!($self, BoolComparison, $cx, $e);
         $crate::run_check_expr_field!($self, NeedlessForEach, $cx, $e);
         $crate::run_check_expr_field!($self, LintPass, $cx, $e);
-        $crate::run_check_expr_field!($self, EtaReduction, $cx, $e);
-        $crate::run_check_expr_field!($self, UnnecessaryMutPassed, $cx, $e);
         $crate::run_check_expr_field!($self, SignificantDropTightening, $cx, $e);
         $crate::run_check_expr_field!($self, LenZero, $cx, $e);
         $crate::run_check_expr_field!($self, LenWithoutIsEmpty, $cx, $e);
         $crate::run_check_expr_field!($self, Attributes, $cx, $e);
         $crate::run_check_expr_field!($self, BlocksInConditions, $cx, $e);
         $crate::run_check_expr_field!($self, UninitVec, $cx, $e);
-        $crate::run_check_expr_field!($self, StringAdd, $cx, $e);
         $crate::run_check_expr_field!($self, ImplicitReturn, $cx, $e);
         $crate::run_check_expr_field!($self, ImplicitSaturatingSub, $cx, $e);
         $crate::run_check_expr_field!($self, DefaultNumericFallback, $cx, $e);
-        $crate::run_check_expr_field!($self, NonOctalUnixPermissions, $cx, $e);
         $crate::run_check_expr_field!($self, ApproxConstant, $cx, $e);
         $crate::run_check_expr_field!($self, Matches, $cx, $e);
         $crate::run_check_expr_field!($self, ManualStrip, $cx, $e);
@@ -57,7 +51,6 @@ macro_rules! combined_check_expr_dispatch {
         $crate::run_check_expr_field!($self, SameNameMethod, $cx, $e);
         $crate::run_check_expr_field!($self, IndexRefutableSlice, $cx, $e);
         $crate::run_check_expr_field!($self, Shadow, $cx, $e);
-        $crate::run_check_expr_field!($self, Methods, $cx, $e);
         $crate::run_check_expr_field!($self, UnitTypes, $cx, $e);
         $crate::run_check_expr_field!($self, Loops, $cx, $e);
         $crate::run_check_expr_field!($self, MainRecursion, $cx, $e);
@@ -104,7 +97,6 @@ macro_rules! combined_check_expr_dispatch {
         $crate::run_check_expr_field!($self, ImplicitHasher, $cx, $e);
         $crate::run_check_expr_field!($self, FallibleImplFrom, $cx, $e);
         $crate::run_check_expr_field!($self, QuestionMark, $cx, $e);
-        $crate::run_check_expr_field!($self, SuspiciousImpl, $cx, $e);
         $crate::run_check_expr_field!($self, MapUnit, $cx, $e);
         $crate::run_check_expr_field!($self, MultipleInherentImpl, $cx, $e);
         $crate::run_check_expr_field!($self, Unwrap, $cx, $e);
@@ -118,7 +110,6 @@ macro_rules! combined_check_expr_dispatch {
         $crate::run_check_expr_field!($self, ComparisonChain, $cx, $e);
         $crate::run_check_expr_field!($self, MutableKeyType, $cx, $e);
         $crate::run_check_expr_field!($self, FormatImpl, $cx, $e);
-        $crate::run_check_expr_field!($self, RedundantClosureCall, $cx, $e);
         $crate::run_check_expr_field!($self, Return, $cx, $e);
         $crate::run_check_expr_field!($self, ItemsAfterStatements, $cx, $e);
         $crate::run_check_expr_field!($self, NeedlessParensOnRangeLiterals, $cx, $e);
@@ -142,7 +133,6 @@ macro_rules! combined_check_expr_dispatch {
         $crate::run_check_expr_field!($self, ManualAsyncFn, $cx, $e);
         $crate::run_check_expr_field!($self, PanicInResultFn, $cx, $e);
         $crate::run_check_expr_field!($self, MacroUseImports, $cx, $e);
-        $crate::run_check_expr_field!($self, PatternTypeMismatch, $cx, $e);
         $crate::run_check_expr_field!($self, UnwrapInResult, $cx, $e);
         $crate::run_check_expr_field!($self, SemicolonIfNothingReturned, $cx, $e);
         $crate::run_check_expr_field!($self, AsyncYieldsAsync, $cx, $e);
@@ -237,7 +227,6 @@ macro_rules! combined_check_expr_dispatch {
         $crate::run_check_expr_field!($self, UnconditionalRecursion, $cx, $e);
         $crate::run_check_expr_field!($self, PubUnderscoreFields, $cx, $e);
         $crate::run_check_expr_field!($self, MissingConstForThreadLocal, $cx, $e);
-        $crate::run_check_expr_field!($self, IncompatibleMsrv, $cx, $e);
         $crate::run_check_expr_field!($self, ToStringTraitImpl, $cx, $e);
         $crate::run_check_expr_field!($self, AssigningClones, $cx, $e);
         $crate::run_check_expr_field!($self, ZeroRepeatSideEffects, $cx, $e);
@@ -259,10 +248,8 @@ macro_rules! combined_check_expr_dispatch {
         $crate::run_check_expr_field!($self, InfallibleTryFrom, $cx, $e);
         $crate::run_check_expr_field!($self, CoerceContainerToAny, $cx, $e);
         $crate::run_check_expr_field!($self, ToplevelRefArg, $cx, $e);
-        $crate::run_check_expr_field!($self, VolatileComposites, $cx, $e);
         $crate::run_check_expr_field!($self, DisallowedFields, $cx, $e);
         $crate::run_check_expr_field!($self, ManualIlog2, $cx, $e);
-        $crate::run_check_expr_field!($self, DurationSuboptimalUnits, $cx, $e);
         $crate::run_check_expr_field!($self, ManualNoopWaker, $cx, $e);
         $crate::run_check_expr_field!($self, ByteCharSlice, $cx, $e);
         $crate::run_check_expr_field!($self, ManualAssertEq, $cx, $e);
@@ -270,9 +257,14 @@ macro_rules! combined_check_expr_dispatch {
         $crate::run_check_expr_field!($self, RedundantElse, $cx, $e);
         match $e.kind {
             rustc_hir::ExprKind::Call(..) => {
+                $crate::run_check_expr_field!($self, EtaReduction, $cx, $e);
+                $crate::run_check_expr_field!($self, UnnecessaryMutPassed, $cx, $e);
+                $crate::run_check_expr_field!($self, NonOctalUnixPermissions, $cx, $e);
                 $crate::run_check_expr_field!($self, MemReplace, $cx, $e);
+                $crate::run_check_expr_field!($self, Methods, $cx, $e);
                 $crate::run_check_expr_field!($self, Transmute, $cx, $e);
                 $crate::run_check_expr_field!($self, DropForgetRef, $cx, $e);
+                $crate::run_check_expr_field!($self, RedundantClosureCall, $cx, $e);
                 $crate::run_check_expr_field!($self, CreateDir, $cx, $e);
                 $crate::run_check_expr_field!($self, Exit, $cx, $e);
                 $crate::run_check_expr_field!($self, FromStrRadix10, $cx, $e);
@@ -282,25 +274,39 @@ macro_rules! combined_check_expr_dispatch {
                 $crate::run_check_expr_field!($self, BoxDefault, $cx, $e);
                 $crate::run_check_expr_field!($self, FromRawWithVoidPtr, $cx, $e);
                 $crate::run_check_expr_field!($self, SizeOfRef, $cx, $e);
+                $crate::run_check_expr_field!($self, IncompatibleMsrv, $cx, $e);
                 $crate::run_check_expr_field!($self, ZombieProcesses, $cx, $e);
                 $crate::run_check_expr_field!($self, NonStdLazyStatic, $cx, $e);
+                $crate::run_check_expr_field!($self, VolatileComposites, $cx, $e);
                 $crate::run_check_expr_field!($self, SameLengthAndCapacity, $cx, $e);
+                $crate::run_check_expr_field!($self, DurationSuboptimalUnits, $cx, $e);
                 $crate::run_check_expr_field!($self, WithCapacityZero, $cx, $e);
             },
             rustc_hir::ExprKind::MethodCall(..) => {
+                $crate::run_check_expr_field!($self, EtaReduction, $cx, $e);
+                $crate::run_check_expr_field!($self, UnnecessaryMutPassed, $cx, $e);
                 $crate::run_check_expr_field!($self, UnitReturnExpectingOrd, $cx, $e);
+                $crate::run_check_expr_field!($self, NonOctalUnixPermissions, $cx, $e);
+                $crate::run_check_expr_field!($self, Methods, $cx, $e);
                 $crate::run_check_expr_field!($self, ExplicitWrite, $cx, $e);
                 $crate::run_check_expr_field!($self, ToDigitIsSome, $cx, $e);
                 $crate::run_check_expr_field!($self, PermissionsSetReadonlyFalse, $cx, $e);
                 $crate::run_check_expr_field!($self, UnnecessaryMapOnConstructor, $cx, $e);
                 $crate::run_check_expr_field!($self, IneffectiveOpenOptions, $cx, $e);
+                $crate::run_check_expr_field!($self, IncompatibleMsrv, $cx, $e);
                 $crate::run_check_expr_field!($self, StringPatterns, $cx, $e);
                 $crate::run_check_expr_field!($self, ZombieProcesses, $cx, $e);
+                $crate::run_check_expr_field!($self, VolatileComposites, $cx, $e);
             },
             rustc_hir::ExprKind::Binary(..) => {
+                $crate::run_check_expr_field!($self, NonminimalBool, $cx, $e);
                 $crate::run_check_expr_field!($self, Ptr, $cx, $e);
+                $crate::run_check_expr_field!($self, BoolComparison, $cx, $e);
+                $crate::run_check_expr_field!($self, StringAdd, $cx, $e);
+                $crate::run_check_expr_field!($self, Methods, $cx, $e);
                 $crate::run_check_expr_field!($self, ZeroDiv, $cx, $e);
                 $crate::run_check_expr_field!($self, NegMultiply, $cx, $e);
+                $crate::run_check_expr_field!($self, SuspiciousImpl, $cx, $e);
                 $crate::run_check_expr_field!($self, ManualBits, $cx, $e);
                 $crate::run_check_expr_field!($self, ManualRemEuclid, $cx, $e);
                 $crate::run_check_expr_field!($self, ManualSliceSizeCalculation, $cx, $e);
@@ -320,6 +326,7 @@ macro_rules! combined_check_expr_dispatch {
             },
             rustc_hir::ExprKind::Let(..) => {
                 $crate::run_check_expr_field!($self, PatternEquality, $cx, $e);
+                $crate::run_check_expr_field!($self, PatternTypeMismatch, $cx, $e);
             },
             rustc_hir::ExprKind::If(..) => {
                 $crate::run_check_expr_field!($self, CollapsibleIf, $cx, $e);
@@ -331,23 +338,30 @@ macro_rules! combined_check_expr_dispatch {
             rustc_hir::ExprKind::Match(..) => {
                 $crate::run_check_expr_field!($self, QuestionMarkUsed, $cx, $e);
                 $crate::run_check_expr_field!($self, LargeFuture, $cx, $e);
+                $crate::run_check_expr_field!($self, PatternTypeMismatch, $cx, $e);
             },
             rustc_hir::ExprKind::Closure(..) => {
                 $crate::run_check_expr_field!($self, AwaitHolding, $cx, $e);
             },
             rustc_hir::ExprKind::Assign(..) => {
+                $crate::run_check_expr_field!($self, StringAdd, $cx, $e);
                 $crate::run_check_expr_field!($self, TemporaryAssignment, $cx, $e);
                 $crate::run_check_expr_field!($self, SlowVectorInit, $cx, $e);
                 $crate::run_check_expr_field!($self, PathbufThenPush, $cx, $e);
                 $crate::run_check_expr_field!($self, ReplaceBox, $cx, $e);
             },
+            rustc_hir::ExprKind::AssignOp(..) => {
+                $crate::run_check_expr_field!($self, SuspiciousImpl, $cx, $e);
+            },
             rustc_hir::ExprKind::Index(..) => {
+                $crate::run_check_expr_field!($self, StringAdd, $cx, $e);
                 $crate::run_check_expr_field!($self, IndexingSlicing, $cx, $e);
             },
             rustc_hir::ExprKind::Path(..) => {
                 $crate::run_check_expr_field!($self, ManualNonExhaustive, $cx, $e);
                 $crate::run_check_expr_field!($self, NeedlessPassByRefMut, $cx, $e);
                 $crate::run_check_expr_field!($self, SingleCallFn, $cx, $e);
+                $crate::run_check_expr_field!($self, IncompatibleMsrv, $cx, $e);
             },
             rustc_hir::ExprKind::AddrOf(..) => {
                 $crate::run_check_expr_field!($self, MutMut, $cx, $e);
