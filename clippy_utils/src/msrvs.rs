@@ -119,6 +119,7 @@ impl Msrv {
     ///
     /// If the crate being linted uses an `#[clippy::msrv]` attribute this will search the parent
     /// nodes for that attribute, prefer to run this check after cheaper pattern matching operations
+    #[inline]
     pub fn current(self, cx: &LateContext<'_>) -> Option<RustcVersion> {
         if SEEN_MSRV_ATTR.load(Ordering::Relaxed) {
             self.for_attrs(cx.tcx, cx.last_node_with_lint_attrs)
@@ -131,6 +132,7 @@ impl Msrv {
     ///
     /// If the crate being linted uses an `#[clippy::msrv]` attribute this will search the parent
     /// nodes for that attribute, prefer to run this check after cheaper pattern matching operations
+    #[inline]
     pub fn at(self, tcx: TyCtxt<'_>, node: HirId) -> Option<RustcVersion> {
         if SEEN_MSRV_ATTR.load(Ordering::Relaxed) {
             self.for_attrs(tcx, node)
@@ -150,6 +152,7 @@ impl Msrv {
     ///
     /// If the crate being linted uses an `#[clippy::msrv]` attribute this will search the parent
     /// nodes for that attribute, prefer to run this check after cheaper pattern matching operations
+    #[inline]
     pub fn meets(self, cx: &LateContext<'_>, required: RustcVersion) -> bool {
         self.current(cx).is_none_or(|msrv| msrv >= required)
     }
@@ -158,6 +161,7 @@ impl Msrv {
     ///
     /// If the crate being linted uses an `#[clippy::msrv]` attribute this will search the parent
     /// nodes for that attribute, prefer to run this check after cheaper pattern matching operations
+    #[inline]
     pub fn meets_at(self, tcx: TyCtxt<'_>, node: HirId, required: RustcVersion) -> bool {
         self.at(tcx, node).is_none_or(|msrv| msrv >= required)
     }
@@ -212,23 +216,29 @@ impl MsrvStack {
         }
     }
 
+    #[inline]
     pub fn current(&self) -> Option<RustcVersion> {
         self.stack.last().copied()
     }
 
+    #[inline]
     pub fn meets(&self, required: RustcVersion) -> bool {
         self.current().is_none_or(|msrv| msrv >= required)
     }
 
+    #[inline]
     pub fn check_attributes(&mut self, sess: &Session, attrs: &[Attribute]) {
-        if let Some(version) = parse_attrs_memoized(sess, attrs) {
+        if !attrs.is_empty()
+            && let Some(version) = parse_attrs_memoized(sess, attrs)
+        {
             SEEN_MSRV_ATTR.store(true, Ordering::Relaxed);
             self.stack.push(version);
         }
     }
 
+    #[inline]
     pub fn check_attributes_post(&mut self, sess: &Session, attrs: &[Attribute]) {
-        if parse_attrs_memoized(sess, attrs).is_some() {
+        if !attrs.is_empty() && parse_attrs_memoized(sess, attrs).is_some() {
             self.stack.pop();
         }
     }
