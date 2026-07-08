@@ -43,8 +43,16 @@ macro_rules! run_combined_late_lint_pass_field {
 }
 
 /// Forward one `check_*` method to every field of the combined pass.
+///
+/// `check_expr` is special-cased through the generated dispatch table (see `expr_dispatch`):
+/// passes whose `check_expr` provably reacts only to specific `ExprKind`s are called from a
+/// per-kind match arm instead of unconditionally, so an expression only visits the passes
+/// interested in its kind plus the always-run remainder.
 #[macro_export]
 macro_rules! expand_combined_late_lint_pass_method {
+    ($fields:tt, $self:ident, check_expr, ($cx:expr, $e:expr)) => (
+        $crate::combined_check_expr_dispatch!($self, $cx, $e)
+    );
     ([$($field:ident),*], $self:ident, $name:ident, $args:tt) => ({
         $($crate::run_combined_late_lint_pass_field!($self, $field, $name, $args);)*
     })
