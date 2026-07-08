@@ -16,7 +16,7 @@ in_external_macro forms); or the body must start with `let <ExprKind pat> =
 """
 import re, os, sys, json
 
-ROOT = os.path.expanduser("~/Documents/rust-clippy/clippy_lints/src")
+ROOT = os.path.expanduser("~/workspace/wt-nw/clippy_lints/src")
 LIB = os.path.join(ROOT, "..", "src", "lib.rs")
 LIB = os.path.normpath(os.path.join(ROOT, "lib.rs"))
 
@@ -269,6 +269,8 @@ def classify(body, var):
             continue
         if PURE_LET.match(st) and not seen_kind_block:
             continue
+        if re.match(r'^use [\w:{}, ]+;$', st) and not seen_kind_block:
+            continue
         ks = kinds_of_if_stmt(st, var)
         if ks is None:
             ks = kinds_of_match_stmt(st, var)
@@ -280,6 +282,27 @@ def classify(body, var):
         return ("kinds", sorted(kinds))
     return ("always", [])
 
+# Hand-audited kind sets for passes whose check_expr the scanner cannot prove.
+# Every entry documents the audit; re-audit when the pass's check_expr changes.
+MANUAL_KINDS = {
+    # if-let ExprKind::Match branch, else-if higher::IfLet::hir (ExprKind::If with a Let
+    # condition), then higher::WhileLet::hir twice (ExprKind::Loop while-let desugar); the
+    # leading guard and span binding are pure.
+    "Matches": ["Match", "If", "Loop"],
+    # higher::ForLoop::hir matches ExprKind::DropTemps; the explicit branches match
+    # ExprKind::Loop; while_let_on_iterator and higher::While/WhileLet resolve to
+    # ExprKind::Loop; the final branch matches ExprKind::MethodCall.
+    "Loops": ["DropTemps", "Loop", "MethodCall"],
+    # if-let ExprKind::Cast branch; borrow_as_ptr::check_implicit_cast matches AddrOf;
+    # cast_slice_from_raw_parts::check_implicit_cast and cast_slice_different_sizes use
+    # expr.peel_blocks() and so also react to Block and Call; cast_ptr_alignment and
+    # ptr_cast_constness method checks match MethodCall.
+    "Casts": ["Cast", "Call", "MethodCall", "AddrOf", "Block"],
+    # misc: check_used_underscore's leading match binds only Path, MethodCall, Struct and
+    # Field expressions; everything after it only returns early.
+    "LintPass": ["Path", "Field", "MethodCall", "Struct"],
+}
+
 verdicts = {}
 for field, ty in entries:
     path, tyname = module_file(ty)
@@ -288,6 +311,10 @@ for field, ty in entries:
         continue
     body, var = find_check_expr(path, tyname)
     kind, ks = classify(body, var) if body is not None else ("none", [])
+    if field in MANUAL_KINDS:
+        if kind == "kinds":
+            print(f"note: {field} is provable automatically now; drop its manual entry", file=sys.stderr)
+        kind, ks = "kinds", MANUAL_KINDS[field]
     verdicts[field] = (kind, ks, ty)
 
 n_none = sum(1 for v in verdicts.values() if v[0]=="none")
@@ -347,7 +374,7 @@ out.append("}")
 
 open(os.path.join(ROOT, "expr_dispatch.rs"), "w").write("\n".join(out) + "\n")
 json.dump({f: {"verdict": v[0], "kinds": v[1], "type": v[2]} for f, v in verdicts.items()},
-          open("/tmp/claude-1000/-home-makro-Documents/28a8f459-fed0-4010-932c-d8f8ae3a0b21/scratchpad/dispatch-verdicts.json", "w"), indent=1)
+          open("/tmp/dispatch-verdicts.json", "w"), indent=1)
 print("wrote expr_dispatch.rs", file=sys.stderr)
 for f,(k,ks,ty) in sorted(verdicts.items()):
     if k == "kinds":
