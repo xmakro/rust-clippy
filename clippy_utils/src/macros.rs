@@ -1,6 +1,6 @@
 #![allow(clippy::similar_names)] // `expr` and `expn`
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::sync::{Arc, OnceLock};
 
 use crate::visitors::{Descend, for_each_expr_without_closures};
@@ -60,7 +60,7 @@ pub fn is_format_macro(cx: &LateContext<'_>, macro_def_id: DefId) -> bool {
 /// Even better is to check if it is a diagnostic item.
 ///
 /// This structure is similar to `ExpnData` but it precludes desugaring expansions.
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct MacroCall {
     /// Macro `DefId`
     pub def_id: DefId,
@@ -135,7 +135,26 @@ pub fn macro_backtrace(span: Span) -> impl Iterator<Item = MacroCall> {
 /// If you only want to check whether the root macro has a specific name,
 /// consider using [`matching_root_macro_call`] instead.
 pub fn root_macro_call(span: Span) -> Option<MacroCall> {
-    macro_backtrace(span).last()
+    if !span.from_expansion() {
+        return None;
+    }
+
+    // The whole macro backtrace is determined by the span's syntax context: the walk reads the
+    // context's expansion data and continues at the call site's context, so spans sharing a
+    // context share the result. Expansion is finished by the time lint passes run, making the
+    // hygiene table effectively frozen and the cached values stable. The walk itself clones one
+    // `ExpnData` per level while holding the hygiene lock, which is far more expensive than one
+    // hash lookup, and macro-heavy crates query the same contexts over and over.
+    ROOT_MACRO_CALL_CACHE.with_borrow_mut(|cache| {
+        *cache
+            .entry(span.ctxt())
+            .or_insert_with(|| macro_backtrace(span).last())
+    })
+}
+
+thread_local! {
+    static ROOT_MACRO_CALL_CACHE: RefCell<FxHashMap<SyntaxContext, Option<MacroCall>>> =
+        RefCell::new(FxHashMap::default());
 }
 
 /// A combination of [`root_macro_call`] and
