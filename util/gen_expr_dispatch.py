@@ -3,9 +3,9 @@
 
 For each pass in the combined list (parsed from lib.rs), locate its LateLintPass
 impl block and its check_expr, then decide:
-  - no check_expr impl        -> omit (default no-op)
   - provably kind-gated       -> dispatch under the listed ExprKind variants
-  - anything else             -> always-call
+  - anything else             -> always-call (including passes where no check_expr
+    is found: their default no-op impl inlines to nothing, so this is free and safe)
 
 "Provably kind-gated" is deliberately strict: the entire body must be a single
 `if` expression with no else and nothing after it, whose `&&` chain contains a
@@ -75,7 +75,7 @@ def module_file(typath):
 def find_check_expr(path, ty):
     """return body text of check_expr in the LateLintPass impl for ty, and the expr var name."""
     s = open(path).read()
-    for im in re.finditer(rf'impl<[^>]*>\s*LateLintPass<[^>]*>\s*for\s+{ty}\b[^{{]*\{{', s):
+    for im in re.finditer(rf'impl(?:<[^>]*>)?\s*LateLintPass<[^>]*>\s*for\s+{ty}\b[^{{]*\{{', s):
         end = matching_brace(s, im.end()-1)
         block = s[im.end():end-1]
         fm = re.search(r'fn check_expr\s*\(\s*&mut self,\s*\w+:\s*&\w*\s*LateContext[^,]*,\s*(\w+):\s*&', block)
@@ -182,7 +182,9 @@ always = []
 for field, (kind, ks, ty) in verdicts.items():
     if kind == "kinds":
         for k in ks: by_kind[k].append(field)
-    elif kind == "always":
+    else:
+        # No provable kind gate, or no check_expr found: run unconditionally. A pass
+        # without a check_expr impl inlines to nothing, so this is free and safe.
         always.append(field)
 
 out = []
