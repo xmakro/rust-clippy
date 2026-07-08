@@ -10,6 +10,7 @@ use rustc_middle::ty::TyCtxt;
 use rustc_session::Session;
 use rustc_span::Symbol;
 use serde::Deserialize;
+use std::cell::Cell;
 use std::iter::once;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -220,17 +221,48 @@ impl MsrvStack {
     }
 
     pub fn check_attributes(&mut self, sess: &Session, attrs: &[Attribute]) {
-        if let Some(version) = parse_attrs(sess, attrs) {
+        if let Some(version) = parse_attrs_memoized(sess, attrs) {
             SEEN_MSRV_ATTR.store(true, Ordering::Relaxed);
             self.stack.push(version);
         }
     }
 
     pub fn check_attributes_post(&mut self, sess: &Session, attrs: &[Attribute]) {
-        if parse_attrs(sess, attrs).is_some() {
+        if parse_attrs_memoized(sess, attrs).is_some() {
             self.stack.pop();
         }
     }
+}
+
+thread_local! {
+    /// Single-entry cache for the most recently parsed attribute slice.
+    ///
+    /// Every early lint pass that tracks an MSRV receives the very same attribute slice for a
+    /// node, one right after another, so without caching `parse_attrs` re-scans identical
+    /// attributes once per pass on entering the node and again on leaving it. The slice is
+    /// identified by its base pointer and length, which are only ever compared and never
+    /// dereferenced; the AST is immutable and lives for the whole early lint phase, so a matching
+    /// pointer and length always denote the same attributes and therefore the same result.
+    static LAST_MSRV_PARSE: Cell<Option<(*const Attribute, usize, Option<RustcVersion>)>> = const { Cell::new(None) };
+}
+
+fn parse_attrs_memoized(sess: &Session, attrs: &[Attribute]) -> Option<RustcVersion> {
+    if attrs.is_empty() {
+        return None;
+    }
+
+    let ptr = attrs.as_ptr();
+    let len = attrs.len();
+    if let Some((cached_ptr, cached_len, result)) = LAST_MSRV_PARSE.get()
+        && cached_ptr == ptr
+        && cached_len == len
+    {
+        return result;
+    }
+
+    let result = parse_attrs(sess, attrs);
+    LAST_MSRV_PARSE.set(Some((ptr, len, result)));
+    result
 }
 
 fn parse_attrs(sess: &Session, attrs: &[impl AttributeExt]) -> Option<RustcVersion> {
