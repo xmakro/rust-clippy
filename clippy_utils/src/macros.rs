@@ -134,14 +134,26 @@ pub fn is_ctxt_in_external_macro(sess: &Session, ctxt: SyntaxContext) -> bool {
     if ctxt.is_root() {
         return false;
     }
-    IN_EXTERNAL_MACRO_CACHE.with_borrow_mut(|cache| {
+    // The one-entry slot serves the dominant pattern of consecutive queries for the same
+    // context (every lint asking about the node currently being visited) at the cost of a
+    // comparison, and the map behind it keeps the answers for contexts that alternate, which
+    // a slot alone keeps evicting.
+    if let Some((cached_ctxt, cached)) = LAST_IN_EXTERNAL_MACRO.get()
+        && cached_ctxt == ctxt
+    {
+        return cached;
+    }
+    let result = IN_EXTERNAL_MACRO_CACHE.with_borrow_mut(|cache| {
         *cache
             .entry(ctxt)
             .or_insert_with(|| ctxt.in_external_macro(sess.source_map()))
-    })
+    });
+    LAST_IN_EXTERNAL_MACRO.set(Some((ctxt, result)));
+    result
 }
 
 thread_local! {
+    static LAST_IN_EXTERNAL_MACRO: Cell<Option<(SyntaxContext, bool)>> = const { Cell::new(None) };
     static IN_EXTERNAL_MACRO_CACHE: RefCell<FxHashMap<SyntaxContext, bool>> =
         RefCell::new(FxHashMap::default());
 }
