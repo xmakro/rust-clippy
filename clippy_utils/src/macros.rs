@@ -117,27 +117,33 @@ pub fn expn_is_local(expn: ExpnId) -> bool {
 /// node being visited, and the combined pass runs their `check_*` callbacks on that node back to
 /// back, so the queries repeat consecutively. The result depends only on the `SyntaxContext`
 /// (the `SourceMap` is fixed during a lint run), so a cache hit is always correct.
+#[inline]
 pub fn is_in_external_macro(sess: &Session, span: Span) -> bool {
     is_ctxt_in_external_macro(sess, span.ctxt())
 }
 
 /// Like [`is_in_external_macro`], but takes the span's [`SyntaxContext`] directly.
+///
+/// The underlying check reads the context's expansion data and, for macros, searches the source
+/// map for the definition site, which is far more expensive than a hash lookup. The answer is a
+/// pure function of the context (the source map and hygiene table are fixed during a lint run),
+/// and the same contexts are queried once per lint per node, so they are cached in a map rather
+/// than a single slot: nested expansions alternate between contexts, which a single slot misses.
+#[inline]
 pub fn is_ctxt_in_external_macro(sess: &Session, ctxt: SyntaxContext) -> bool {
     if ctxt.is_root() {
         return false;
     }
-    if let Some((cached_ctxt, cached)) = LAST_IN_EXTERNAL_MACRO.get()
-        && cached_ctxt == ctxt
-    {
-        return cached;
-    }
-    let result = ctxt.in_external_macro(sess.source_map());
-    LAST_IN_EXTERNAL_MACRO.set(Some((ctxt, result)));
-    result
+    IN_EXTERNAL_MACRO_CACHE.with_borrow_mut(|cache| {
+        *cache
+            .entry(ctxt)
+            .or_insert_with(|| ctxt.in_external_macro(sess.source_map()))
+    })
 }
 
 thread_local! {
-    static LAST_IN_EXTERNAL_MACRO: Cell<Option<(SyntaxContext, bool)>> = const { Cell::new(None) };
+    static IN_EXTERNAL_MACRO_CACHE: RefCell<FxHashMap<SyntaxContext, bool>> =
+        RefCell::new(FxHashMap::default());
 }
 
 /// Returns an iterator of macro expansions that created the given span.
