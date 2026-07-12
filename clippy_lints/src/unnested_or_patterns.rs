@@ -1,9 +1,8 @@
 #![allow(clippy::enum_glob_use, clippy::wildcard_imports)]
 
-use clippy_config::Conf;
 use clippy_utils::ast_utils::{eq_field_pat, eq_id, eq_maybe_qself, eq_pat, eq_path};
 use clippy_utils::diagnostics::span_lint_and_then;
-use clippy_utils::msrvs::{self, MsrvStack};
+use clippy_utils::msrvs::{self, SharedMsrvStack};
 use clippy_utils::over;
 use rustc_ast::PatKind::*;
 use rustc_ast::mut_visit::*;
@@ -51,12 +50,12 @@ declare_clippy_lint! {
 impl_lint_pass!(UnnestedOrPatterns => [UNNESTED_OR_PATTERNS]);
 
 pub struct UnnestedOrPatterns {
-    msrv: MsrvStack,
+    msrv: SharedMsrvStack,
 }
 
 impl UnnestedOrPatterns {
-    pub fn new(conf: &'static Conf) -> Self {
-        Self { msrv: conf.msrv.into() }
+    pub fn new(msrv: SharedMsrvStack) -> Self {
+        Self { msrv }
     }
 }
 
@@ -87,7 +86,6 @@ impl EarlyLintPass for UnnestedOrPatterns {
         }
     }
 
-    extract_msrv_attr!();
 }
 
 fn lint_unnested_or_patterns(cx: &EarlyContext<'_>, pat: &Pat) {
