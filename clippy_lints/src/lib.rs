@@ -468,7 +468,16 @@ pub fn register_lint_passes(store: &mut rustc_lint::LintStore, conf: &'static Co
         let format_args = format_args_storage.clone();
         let attrs = attr_storage.clone();
         store.register_early_lint_pass(Box::new(move || {
-            Box::new(CombinedEarlyLintPass::new(conf, format_args.clone(), attrs.clone()))
+            // One shared MSRV cell per combined-pass instance: `MsrvTracker` maintains it, every
+            // other MSRV-aware early pass reads it. Fresh per instance so state never leaks between
+            // crates in a session.
+            let msrv = clippy_utils::msrvs::SharedMsrvStack::new(conf.msrv);
+            Box::new(CombinedEarlyLintPass::new(
+                conf,
+                format_args.clone(),
+                attrs.clone(),
+                msrv,
+            ))
         }));
     }
 
@@ -490,14 +499,15 @@ pub fn register_lint_passes(store: &mut rustc_lint::LintStore, conf: &'static Co
 #[rustfmt::skip]
 rustc_lint::early_lint_methods!(
     crate::combined_early_lint_pass,
-    [CombinedEarlyLintPass, (conf: &'static Conf, format_args: FormatArgsStorage, attrs: AttrStorage), [
+    [CombinedEarlyLintPass, (conf: &'static Conf, format_args: FormatArgsStorage, attrs: AttrStorage, msrv: clippy_utils::msrvs::SharedMsrvStack), [
         FormatArgsCollector: utils::format_args_collector::FormatArgsCollector = utils::format_args_collector::FormatArgsCollector::new(format_args.clone()),
         AttrCollector: utils::attr_collector::AttrCollector = utils::attr_collector::AttrCollector::new(attrs.clone()),
-        PostExpansionEarlyAttributes: attrs::PostExpansionEarlyAttributes = attrs::PostExpansionEarlyAttributes::new(conf),
+        MsrvTracker: utils::msrv_tracker::MsrvTracker = utils::msrv_tracker::MsrvTracker::new(msrv.clone(), clippy_utils::msrvs::MsrvStack::from(conf.msrv)),
+        PostExpansionEarlyAttributes: attrs::PostExpansionEarlyAttributes = attrs::PostExpansionEarlyAttributes::new(msrv.clone()),
         UnnecessarySelfImports: unnecessary_self_imports::UnnecessarySelfImports = unnecessary_self_imports::UnnecessarySelfImports,
-        RedundantStaticLifetimes: redundant_static_lifetimes::RedundantStaticLifetimes = redundant_static_lifetimes::RedundantStaticLifetimes::new(conf),
-        RedundantFieldNames: redundant_field_names::RedundantFieldNames = redundant_field_names::RedundantFieldNames::new(conf),
-        UnnestedOrPatterns: unnested_or_patterns::UnnestedOrPatterns = unnested_or_patterns::UnnestedOrPatterns::new(conf),
+        RedundantStaticLifetimes: redundant_static_lifetimes::RedundantStaticLifetimes = redundant_static_lifetimes::RedundantStaticLifetimes::new(msrv.clone()),
+        RedundantFieldNames: redundant_field_names::RedundantFieldNames = redundant_field_names::RedundantFieldNames::new(msrv.clone()),
+        UnnestedOrPatterns: unnested_or_patterns::UnnestedOrPatterns = unnested_or_patterns::UnnestedOrPatterns::new(msrv.clone()),
         EarlyFunctions: functions::EarlyFunctions = functions::EarlyFunctions,
         Documentation: doc::Documentation = doc::Documentation::new(conf),
         SuspiciousOperationGroupings: suspicious_operation_groupings::SuspiciousOperationGroupings = <suspicious_operation_groupings::SuspiciousOperationGroupings>::default(),
@@ -528,7 +538,7 @@ rustc_lint::early_lint_methods!(
         LargeIncludeFile: large_include_file::LargeIncludeFile = large_include_file::LargeIncludeFile::new(conf),
         DuplicateMod: duplicate_mod::DuplicateMod = duplicate_mod::DuplicateMod::default(),
         UnusedRounding: unused_rounding::UnusedRounding = unused_rounding::UnusedRounding,
-        AlmostCompleteRange: almost_complete_range::AlmostCompleteRange = almost_complete_range::AlmostCompleteRange::new(conf),
+        AlmostCompleteRange: almost_complete_range::AlmostCompleteRange = almost_complete_range::AlmostCompleteRange::new(msrv.clone()),
         MultiAssignments: multi_assignments::MultiAssignments = multi_assignments::MultiAssignments,
         PartialPubFields: partial_pub_fields::PartialPubFields = partial_pub_fields::PartialPubFields,
         UnderscoreTyped: let_with_type_underscore::UnderscoreTyped = let_with_type_underscore::UnderscoreTyped,

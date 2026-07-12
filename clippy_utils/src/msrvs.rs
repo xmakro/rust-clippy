@@ -10,7 +10,9 @@ use rustc_hir::{Constness, HirId, StabilityLevel, StableSince};
 use rustc_lint::LateContext;
 use rustc_middle::ty::TyCtxt;
 use rustc_session::Session;
+use std::cell::Cell;
 use std::iter::once;
+use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 macro_rules! msrv_aliases {
@@ -232,25 +234,69 @@ impl From<Option<RustcVersion>> for MsrvStack {
 }
 
 impl MsrvStack {
+    #[inline]
     pub fn current(&self) -> Option<RustcVersion> {
         self.stack.last().copied()
     }
 
+    #[inline]
     pub fn meets(&self, required: RustcVersion) -> bool {
         self.current().is_none_or(|msrv| msrv >= required)
     }
 
     pub fn check_attributes(&mut self, attrs: &[Attribute]) {
-        if let Some(version) = parse_attrs(attrs) {
+        if !attrs.is_empty()
+            && let Some(version) = parse_attrs(attrs)
+        {
             SEEN_MSRV_ATTR.store(true, Ordering::Relaxed);
             self.stack.push(version);
         }
     }
 
     pub fn check_attributes_post(&mut self, attrs: &[Attribute]) {
-        if parse_attrs(attrs).is_some() {
+        if !attrs.is_empty() && parse_attrs(attrs).is_some() {
             self.stack.pop();
         }
+    }
+}
+
+/// A cheap, shared read-only view of the current early-pass MSRV.
+///
+/// Every MSRV-aware early lint pass used to keep its own [`MsrvStack`] and re-parse the very same
+/// attribute slice on entering and leaving each node, so a node visited by `N` such passes parsed
+/// identical attributes `2N` times. Instead a single `MsrvTracker` pass owns the authoritative
+/// stack and, after every push/pop, publishes the current version here; the other passes simply
+/// read it.
+///
+/// The published value is the top of the stack, an `Option<RustcVersion>`, which is `Copy`, so a
+/// plain [`Cell`] is enough — no `RefCell` and no borrow bookkeeping. The handle is cloned (the
+/// backing cell is shared) into every reader when the combined early pass is built.
+#[derive(Clone)]
+pub struct SharedMsrvStack {
+    current: Rc<Cell<Option<RustcVersion>>>,
+}
+
+impl SharedMsrvStack {
+    pub fn new(initial: Option<RustcVersion>) -> Self {
+        Self {
+            current: Rc::new(Cell::new(initial)),
+        }
+    }
+
+    #[inline]
+    pub fn current(&self) -> Option<RustcVersion> {
+        self.current.get()
+    }
+
+    #[inline]
+    pub fn meets(&self, required: RustcVersion) -> bool {
+        self.current().is_none_or(|msrv| msrv >= required)
+    }
+
+    /// Overwrite the published version with the current top of `stack`. Called only by the single
+    /// owning [`MsrvTracker`] pass after it mutates its stack.
+    pub fn sync_to(&self, stack: &MsrvStack) {
+        self.current.set(stack.current());
     }
 }
 
