@@ -1174,9 +1174,37 @@ impl<'a, 'tcx> SpanlessHash<'a, 'tcx> {
 
     #[expect(clippy::too_many_lines)]
     pub fn hash_expr(&mut self, e: &Expr<'_>) {
-        let simple_const = self.maybe_typeck_results.and_then(|typeck_results| {
-            ConstEvalCtxt::with_env(self.cx.tcx, self.cx.typing_env(), typeck_results).eval_local(e, e.span.ctxt())
-        });
+        // `ConstEvalCtxt::eval_local` only ever returns `Some` for a limited set of expression kinds
+        // (see `consts::ConstEvalCtxt::expr`); for everything else it builds the context and dispatches
+        // just to return `None`. Skip that work for hot kinds that can never be constant so common
+        // non-const expressions -- method calls, calls with arguments, matches, closures, ... -- don't
+        // pay for a const-eval attempt at every node. Anything not listed here still goes through the
+        // evaluator, so this can only ever be a performance change, never a behavioral one.
+        let never_const = matches!(
+            e.kind,
+            ExprKind::MethodCall(..)
+                | ExprKind::Call(_, [_, ..])
+                | ExprKind::Cast(..)
+                | ExprKind::Closure(..)
+                | ExprKind::Match(..)
+                | ExprKind::Loop(..)
+                | ExprKind::Assign(..)
+                | ExprKind::AssignOp(..)
+                | ExprKind::Break(..)
+                | ExprKind::Continue(..)
+                | ExprKind::Ret(..)
+                | ExprKind::Yield(..)
+                | ExprKind::Let(..)
+                | ExprKind::Struct(..)
+                | ExprKind::InlineAsm(..)
+        );
+        let simple_const = if never_const {
+            None
+        } else {
+            self.maybe_typeck_results.and_then(|typeck_results| {
+                ConstEvalCtxt::with_env(self.cx.tcx, self.cx.typing_env(), typeck_results).eval_local(e, e.span.ctxt())
+            })
+        };
 
         // const hashing may result in the same hash as some unrelated node, so add a sort of
         // discriminant depending on which path we're choosing next
