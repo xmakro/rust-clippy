@@ -103,7 +103,9 @@ pub(super) fn check<'tcx>(
                 {
                     let ctxt = start.span.ctxt();
                     let start_equal_left = SpanlessEq::new(cx).eq_expr(ctxt, start, left);
-                    let start_equal_right = SpanlessEq::new(cx).eq_expr(ctxt, start, right);
+                    // Only consulted when `start_equal_left` is false, so don't run the second
+                    // structural comparison otherwise.
+                    let start_equal_right = !start_equal_left && SpanlessEq::new(cx).eq_expr(ctxt, start, right);
 
                     if start_equal_left {
                         take_expr = right;
