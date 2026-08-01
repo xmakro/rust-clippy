@@ -1,6 +1,6 @@
 use clippy_utils::diagnostics::{span_lint_and_help, span_lint_and_note};
 use clippy_utils::is_span_if;
-use clippy_utils::source::snippet_opt;
+use clippy_utils::source::SpanExt;
 use rustc_ast::ast::{BinOpKind, Block, Expr, ExprKind, StmtKind};
 use rustc_lint::{EarlyContext, EarlyLintPass, LintContext};
 use rustc_session::declare_lint_pass;
@@ -170,7 +170,7 @@ fn check_assign(cx: &EarlyContext<'_>, expr: &Expr) {
     {
         let eq_span = lhs.span.between(rhs.span);
         if let ExprKind::Unary(op, ref sub_rhs) = rhs.kind
-            && let Some(eq_snippet) = snippet_opt(cx, eq_span)
+            && let Some(eq_snippet) = eq_span.get_text(cx)
         {
             let op = op.as_str();
             let eqop_span = lhs.span.between(sub_rhs.span);
@@ -201,8 +201,8 @@ fn check_unop(cx: &EarlyContext<'_>, expr: &Expr) {
         && let ExprKind::Unary(op, ref un_rhs) = rhs.kind
         // from UnOp operator to UnOp operand
         && let unop_operand_span = rhs.span.until(un_rhs.span)
-        && let Some(binop_snippet) = snippet_opt(cx, binop_span)
-        && let Some(unop_operand_snippet) = snippet_opt(cx, unop_operand_span)
+        && let Some(binop_snippet) = binop_span.get_text(cx)
+        && let Some(unop_operand_snippet) = unop_operand_span.get_text(cx)
         && let binop_str = binop.node.as_str()
         // no space after BinOp operator and space after UnOp operator
         && binop_snippet.ends_with(binop_str) && unop_operand_snippet.ends_with(' ')
@@ -239,7 +239,7 @@ fn check_else(cx: &EarlyContext<'_>, expr: &Expr) {
 
         // the snippet should look like " else \n    " with maybe comments anywhere
         // it’s bad when there is a ‘\n’ after the “else”
-        && let Some(else_snippet) = snippet_opt(cx, else_span)
+        && let Some(else_snippet) = else_span.get_text(cx)
         && let Some((pre_else, post_else)) = else_snippet.split_once("else")
         && !else_snippet.contains('/')
         && let Some((_, post_else_post_eol)) = post_else.split_once('\n')
@@ -293,7 +293,7 @@ fn check_array(cx: &EarlyContext<'_>, expr: &Expr) {
                 && has_unary_equivalent(op.node)
                 && lhs.span.eq_ctxt(op.span)
                 && let space_span = lhs.span.between(op.span)
-                && let Some(space_snippet) = snippet_opt(cx, space_span)
+                && let Some(space_snippet) = space_span.get_text(cx)
                 && let lint_span = lhs.span.with_lo(lhs.span.hi())
                 && space_snippet.contains('\n')
                 && indentation(cx, op.span) <= indentation(cx, lhs.span)
@@ -322,7 +322,7 @@ fn check_missing_else(cx: &EarlyContext<'_>, first: &Expr, second: &Expr) {
         // If there is a line break between the two expressions, don't lint.
         // If there is a non-whitespace character, this span came from a proc-macro.
         && let else_span = first.span.between(second.span)
-        && let Some(else_snippet) = snippet_opt(cx, else_span)
+        && let Some(else_snippet) = else_span.get_text(cx)
         && !else_snippet.chars().any(|c| c == '\n' || !c.is_whitespace())
     {
         let (looks_like, next_thing) = if is_if(second) {
