@@ -1695,9 +1695,27 @@ pub fn any_parent_has_attr(tcx: TyCtxt<'_>, node: HirId, symbol: Symbol) -> bool
 /// Checks if the given HIR node is inside an `impl` block with the `automatically_derived`
 /// attribute.
 pub fn in_automatically_derived(tcx: TyCtxt<'_>, id: HirId) -> bool {
-    tcx.hir_parent_owner_iter(id)
+    // The parent-owner walk below (and therefore the result) is fully determined by the owner it
+    // starts from and whether `id` is that owner's root node: a non-root id (`local_id != 0`)
+    // includes `id.owner` in the walk, a root id starts above it (see `ParentOwnerIterator::next`).
+    // Memoize on exactly that pair so repeated queries within one body -- the common case, where
+    // many lints ask about sibling expressions -- are O(1) instead of re-walking the owner chain.
+    thread_local! {
+        static CACHE: std::cell::Cell<Option<((OwnerId, bool), bool)>> =
+            const { std::cell::Cell::new(None) };
+    }
+    let key = (id.owner, id.local_id.as_u32() == 0);
+    if let Some((cached_key, result)) = CACHE.get()
+        && cached_key == key
+    {
+        return result;
+    }
+    let result = tcx
+        .hir_parent_owner_iter(id)
         .filter(|(_, node)| matches!(node, OwnerNode::Item(item) if matches!(item.kind, ItemKind::Impl(_))))
-        .any(|(id, _)| find_attr!(tcx, id.def_id, AutomaticallyDerived))
+        .any(|(id, _)| find_attr!(tcx, id.def_id, AutomaticallyDerived));
+    CACHE.set(Some((key, result)));
+    result
 }
 
 /// Checks if the given `DefId` matches the `libc` item.
