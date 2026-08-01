@@ -2846,12 +2846,15 @@ pub fn tokenize_with_text(s: &str) -> impl Iterator<Item = (TokenKind, &str, Inn
 /// This checks for all types of comment: line "//", block "/**", doc "///" "//!"
 pub fn span_contains_comment<'sm>(sm: impl HasSourceMap<'sm>, span: Span) -> bool {
     span.check_text(sm, |snippet| {
-        tokenize(snippet, FrontmatterAllowed::No).any(|token| {
-            matches!(
-                token.kind,
-                TokenKind::BlockComment { .. } | TokenKind::LineComment { .. }
-            )
-        })
+        // Both line (`//`) and block (`/*`) comments contain a `/`, so a snippet without one
+        // cannot contain a comment; skip lexing it entirely (this is a hot path across many lints).
+        snippet.contains('/')
+            && tokenize(snippet, FrontmatterAllowed::No).any(|token| {
+                matches!(
+                    token.kind,
+                    TokenKind::BlockComment { .. } | TokenKind::LineComment { .. }
+                )
+            })
     })
 }
 
