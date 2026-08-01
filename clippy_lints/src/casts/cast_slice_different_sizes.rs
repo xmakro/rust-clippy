@@ -10,6 +10,11 @@ use rustc_middle::ty::{self, Ty, TypeAndMut};
 use super::CAST_SLICE_DIFFERENT_SIZES;
 
 pub(super) fn check<'tcx>(cx: &LateContext<'tcx>, expr: &Expr<'tcx>, msrv: Msrv) {
+    // Only cast expressions can start a cast chain (see `expr_cast_chain_tys`, which peels blocks);
+    // bail before the parent-node lookup below so every non-cast expression does not pay for it.
+    if !matches!(expr.peel_blocks().kind, ExprKind::Cast(..)) {
+        return;
+    }
     // if this cast is the child of another cast expression then don't emit something for it, the full
     // chain will be analyzed
     if is_child_of_cast(cx, expr) {
