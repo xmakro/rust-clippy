@@ -1210,13 +1210,11 @@ impl<'tcx> LateLintPass<'tcx> for Matches {
                 );
                 needless_match::check_if_let(cx, expr, &if_let);
             }
-        } else {
-            if expr.span.in_external_macro(cx.tcx.sess.source_map()) {
-                return;
-            }
-            if let Some(while_let) = higher::WhileLet::hir(expr) {
-                significant_drop_in_scrutinee::check_while_let(cx, expr, while_let.let_expr, while_let.if_then);
-            }
+        // Both checks below only do something for a `while let`.
+        } else if let Some(while_let) = higher::WhileLet::hir(expr)
+            && !expr.span.in_external_macro(cx.tcx.sess.source_map())
+        {
+            significant_drop_in_scrutinee::check_while_let(cx, expr, while_let.let_expr, while_let.if_then);
             if !from_expansion {
                 redundant_pattern_match::check(cx, expr);
             }
