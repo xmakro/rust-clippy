@@ -35,8 +35,13 @@ declare_clippy_lint! {
     "creating a `Box` from a void raw pointer"
 }
 
-pub(crate) fn check<'tcx>(cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>) {
-    if let ExprKind::Call(box_from_raw, [arg]) = expr.kind
+pub(crate) fn check<'tcx>(
+    cx: &LateContext<'tcx>,
+    expr: &'tcx Expr<'tcx>,
+    box_from_raw: &'tcx Expr<'tcx>,
+    args: &'tcx [Expr<'tcx>],
+) {
+    if let [arg] = args
         && let ExprKind::Path(QPath::TypeRelative(ty, seg)) = box_from_raw.kind
         && seg.ident.name == sym::from_raw
         && let Some(type_str) = ty.basic_res().opt_def_id().and_then(|id| def_id_matches_type(cx, id))

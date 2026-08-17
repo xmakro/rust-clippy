@@ -8,6 +8,7 @@ use clippy_utils::{
     as_some_expr, is_default_equivalent, is_expr_used_or_unified, is_none_expr, peel_ref_operators, std_or_core, sym,
 };
 use rustc_errors::Applicability;
+use rustc_hir::def_id::DefId;
 use rustc_hir::{Expr, ExprKind};
 use rustc_lint::LateContext;
 use rustc_span::Span;
@@ -277,11 +278,16 @@ fn check_replace_with_default(
     }
 }
 
-pub(crate) fn check<'tcx>(cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>, msrv: Msrv) {
-    if let ExprKind::Call(func, [dest, src]) = expr.kind
+pub(crate) fn check<'tcx>(
+    cx: &LateContext<'tcx>,
+    expr: &'tcx Expr<'tcx>,
+    args: &'tcx [Expr<'tcx>],
+    callee_id: Option<DefId>,
+    msrv: Msrv,
+) {
+    if let [dest, src] = args
         // Check that `expr` is a call to `mem::replace()`
-        && let ExprKind::Path(ref func_qpath) = func.kind
-        && let Some(def_id) = cx.qpath_res(func_qpath, func.hir_id).opt_def_id()
+        && let Some(def_id) = callee_id
         && cx.tcx.is_diagnostic_item(sym::mem_replace, def_id)
         // Check that second argument is `Option::None`
         && !check_replace_option_with_none(cx, src, dest, expr.span)

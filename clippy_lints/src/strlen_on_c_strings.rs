@@ -5,6 +5,7 @@ use clippy_utils::source::snippet_with_context;
 use clippy_utils::visitors::is_expr_unsafe;
 use clippy_utils::{match_libc_symbol, sym};
 use rustc_errors::Applicability;
+use rustc_hir::def_id::DefId;
 use rustc_hir::{Block, BlockCheckMode, Expr, ExprKind, LangItem, Node, UnsafeSource};
 use rustc_lint::LateContext;
 
@@ -35,11 +36,16 @@ declare_clippy_lint! {
     "using `libc::strlen` on a `CString` or `CStr` value, while `count_bytes()` can be used instead"
 }
 
-pub(crate) fn check<'tcx>(cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>, msrv: Msrv) {
+pub(crate) fn check<'tcx>(
+    cx: &LateContext<'tcx>,
+    expr: &'tcx Expr<'tcx>,
+    args: &'tcx [Expr<'tcx>],
+    callee_id: Option<DefId>,
+    msrv: Msrv,
+) {
     if !expr.span.from_expansion()
-        && let ExprKind::Call(func, [recv]) = expr.kind
-        && let ExprKind::Path(path) = &func.kind
-        && let Some(did) = cx.qpath_res(path, func.hir_id).opt_def_id()
+        && let [recv] = args
+        && let Some(did) = callee_id
         && match_libc_symbol(cx, did, sym::strlen)
         && let ExprKind::MethodCall(path, self_arg, [], _) = recv.kind
         && !recv.span.from_expansion()

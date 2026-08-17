@@ -39,9 +39,14 @@ declare_clippy_lint! {
     "from_str_radix with radix 10"
 }
 
-pub(crate) fn check<'tcx>(cx: &LateContext<'tcx>, exp: &'tcx Expr<'tcx>) {
-    if let ExprKind::Call(maybe_path, [src, radix]) = &exp.kind
-        && let ExprKind::Path(QPath::TypeRelative(ty, pathseg)) = &maybe_path.kind
+pub(crate) fn check<'tcx>(
+    cx: &LateContext<'tcx>,
+    exp: &'tcx Expr<'tcx>,
+    func: &'tcx Expr<'tcx>,
+    args: &'tcx [Expr<'tcx>],
+) {
+    if let [src, radix] = args
+        && let ExprKind::Path(QPath::TypeRelative(ty, pathseg)) = &func.kind
 
         // check if the second argument is a primitive `10`
         && is_integer_literal(radix, 10)

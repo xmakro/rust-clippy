@@ -1,6 +1,7 @@
 use clippy_utils::diagnostics::span_lint;
 use clippy_utils::sym;
-use rustc_hir::{Expr, ExprKind, Item, ItemKind, OwnerNode};
+use rustc_hir::def_id::DefId;
+use rustc_hir::{Expr, Item, ItemKind, OwnerNode};
 use rustc_lint::LateContext;
 
 declare_clippy_lint! {
@@ -51,10 +52,14 @@ declare_clippy_lint! {
     "detects `std::process::exit` calls outside of `main`"
 }
 
-pub(crate) fn check<'tcx>(cx: &LateContext<'tcx>, e: &'tcx Expr<'tcx>) {
-    if let ExprKind::Call(path_expr, [_]) = e.kind
-        && let ExprKind::Path(ref path) = path_expr.kind
-        && let Some(def_id) = cx.qpath_res(path, path_expr.hir_id).opt_def_id()
+pub(crate) fn check<'tcx>(
+    cx: &LateContext<'tcx>,
+    e: &'tcx Expr<'tcx>,
+    args: &'tcx [Expr<'tcx>],
+    callee_id: Option<DefId>,
+) {
+    if let [_] = args
+        && let Some(def_id) = callee_id
         && cx.tcx.is_diagnostic_item(sym::process_exit, def_id)
         && let parent = cx.tcx.hir_get_parent_item(e.hir_id)
         && let OwnerNode::Item(Item{kind: ItemKind::Fn{ ident, .. }, ..}) = cx.tcx.hir_owner_node(parent)

@@ -2,7 +2,7 @@ use clippy_utils::diagnostics::span_lint_and_help;
 use clippy_utils::res::{MaybeDef as _, MaybeResPath as _};
 use clippy_utils::sym;
 use clippy_utils::ty::peel_and_count_ty_refs;
-use rustc_hir::{Expr, ExprKind};
+use rustc_hir::Expr;
 use rustc_lint::LateContext;
 
 declare_clippy_lint! {
@@ -52,8 +52,13 @@ declare_clippy_lint! {
     "Argument to `size_of_val()` is a double-reference, which is almost certainly unintended"
 }
 
-pub(crate) fn check<'tcx>(cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>) {
-    if let ExprKind::Call(path, [arg]) = expr.kind
+pub(crate) fn check<'tcx>(
+    cx: &LateContext<'tcx>,
+    expr: &'tcx Expr<'tcx>,
+    path: &'tcx Expr<'tcx>,
+    args: &'tcx [Expr<'tcx>],
+) {
+    if let [arg] = args
         && path.basic_res().is_diag_item(cx, sym::mem_size_of_val)
         && let arg_ty = cx.typeck_results().expr_ty(arg)
         && peel_and_count_ty_refs(arg_ty).1 > 1

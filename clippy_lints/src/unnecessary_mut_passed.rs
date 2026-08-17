@@ -1,7 +1,7 @@
 use clippy_utils::diagnostics::span_lint_and_then;
 use clippy_utils::source::SpanExt as _;
 use rustc_errors::Applicability;
-use rustc_hir::{BorrowKind, Expr, ExprKind, Mutability, intravisit};
+use rustc_hir::{BorrowKind, Expr, ExprKind, Mutability, PathSegment, intravisit};
 use rustc_hir_pretty::PpAnn;
 use rustc_lint::LateContext;
 use rustc_middle::ty::{self, Ty};
@@ -35,47 +35,55 @@ declare_clippy_lint! {
     "an argument passed as a mutable reference although the callee only demands an immutable reference"
 }
 
-pub(crate) fn check<'tcx>(cx: &LateContext<'tcx>, e: &'tcx Expr<'tcx>) {
+pub(crate) fn check_call<'tcx>(
+    cx: &LateContext<'tcx>,
+    e: &'tcx Expr<'tcx>,
+    fn_expr: &'tcx Expr<'tcx>,
+    arguments: &'tcx [Expr<'tcx>],
+) {
     if e.span.from_expansion() {
         // Issue #11268
         return;
     }
 
-    match e.kind {
-        ExprKind::Call(fn_expr, arguments) => {
-            if let ExprKind::Path(ref path) = fn_expr.kind
-                && arguments.iter().any(is_mut_ref_arg)
-            {
-                check_arguments(
-                    cx,
-                    &mut arguments.iter(),
-                    cx.typeck_results().expr_ty(fn_expr),
-                    #[allow(trivial_casts)]
-                    &|| {
-                        rustc_hir_pretty::qpath_to_string(
-                            &(&cx.tcx as &dyn intravisit::HirTyCtxt<'_>) as &dyn PpAnn,
-                            path,
-                        )
-                    },
-                    "function",
-                );
-            }
-        },
-        ExprKind::MethodCall(path, receiver, arguments, _)
-            if iter::once(receiver).chain(arguments.iter()).any(is_mut_ref_arg)
-                && let Some(def_id) = cx.typeck_results().type_dependent_def_id(e.hir_id) =>
-        {
-            let args = cx.typeck_results().node_args(e.hir_id);
-            let method_type = cx.tcx.type_of(def_id).instantiate(cx.tcx, args).skip_norm_wip();
-            check_arguments(
-                cx,
-                &mut iter::once(receiver).chain(arguments.iter()),
-                method_type,
-                &|| path.ident.as_str().to_owned(),
-                "method",
-            );
-        },
-        _ => (),
+    if let ExprKind::Path(ref path) = fn_expr.kind
+        && arguments.iter().any(is_mut_ref_arg)
+    {
+        check_arguments(
+            cx,
+            &mut arguments.iter(),
+            cx.typeck_results().expr_ty(fn_expr),
+            #[allow(trivial_casts)]
+            &|| rustc_hir_pretty::qpath_to_string(&(&cx.tcx as &dyn intravisit::HirTyCtxt<'_>) as &dyn PpAnn, path),
+            "function",
+        );
+    }
+}
+
+pub(crate) fn check_method_call<'tcx>(
+    cx: &LateContext<'tcx>,
+    e: &'tcx Expr<'tcx>,
+    path: &'tcx PathSegment<'tcx>,
+    receiver: &'tcx Expr<'tcx>,
+    arguments: &'tcx [Expr<'tcx>],
+) {
+    if e.span.from_expansion() {
+        // Issue #11268
+        return;
+    }
+
+    if iter::once(receiver).chain(arguments.iter()).any(is_mut_ref_arg)
+        && let Some(def_id) = cx.typeck_results().type_dependent_def_id(e.hir_id)
+    {
+        let args = cx.typeck_results().node_args(e.hir_id);
+        let method_type = cx.tcx.type_of(def_id).instantiate(cx.tcx, args).skip_norm_wip();
+        check_arguments(
+            cx,
+            &mut iter::once(receiver).chain(arguments.iter()),
+            method_type,
+            &|| path.ident.as_str().to_owned(),
+            "method",
+        );
     }
 }
 

@@ -2,6 +2,7 @@ use clippy_utils::diagnostics::span_lint_and_then;
 use clippy_utils::is_must_use_func_call;
 use clippy_utils::res::MaybeDef as _;
 use clippy_utils::ty::{is_copy, opt_must_use_path};
+use rustc_hir::def_id::DefId;
 use rustc_hir::{Arm, Expr, ExprKind, LangItem, Node};
 use rustc_lint::LateContext;
 use rustc_span::sym;
@@ -74,10 +75,14 @@ const DROP_NON_DROP_SUMMARY: &str = "call to `std::mem::drop` with a value that 
 const FORGET_NON_DROP_SUMMARY: &str = "call to `std::mem::forget` with a value that does not implement `Drop`. \
                                    Forgetting such a type is the same as dropping it";
 
-pub(crate) fn check<'tcx>(cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>) {
-    if let ExprKind::Call(path, [arg]) = expr.kind
-        && let ExprKind::Path(ref qpath) = path.kind
-        && let Some(def_id) = cx.qpath_res(qpath, path.hir_id).opt_def_id()
+pub(crate) fn check<'tcx>(
+    cx: &LateContext<'tcx>,
+    expr: &'tcx Expr<'tcx>,
+    args: &'tcx [Expr<'tcx>],
+    callee_id: Option<DefId>,
+) {
+    if let [arg] = args
+        && let Some(def_id) = callee_id
         && let Some(fn_name) = cx.tcx.get_diagnostic_name(def_id)
     {
         let arg_ty = cx.typeck_results().expr_ty(arg);

@@ -42,9 +42,14 @@ fn is_target_type(cx: &LateContext<'_>, ty: Ty<'_>) -> bool {
         )
 }
 
-pub(crate) fn check<'tcx>(cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>) {
+pub(crate) fn check<'tcx>(
+    cx: &LateContext<'tcx>,
+    expr: &'tcx Expr<'tcx>,
+    func: &'tcx Expr<'tcx>,
+    args: &'tcx [Expr<'tcx>],
+) {
     if !expr.span.from_expansion()
-        && let ExprKind::Call(func, [arg]) = expr.kind
+        && let [arg] = args
         && let Some(def_id) = fn_def_id(cx, expr)
         && cx.tcx.item_name(def_id) == sym::with_capacity
         && is_integer_literal(arg, 0)

@@ -32,9 +32,14 @@ declare_clippy_lint! {
     "Using Box::new(T::default()) instead of Box::default()"
 }
 
-pub(crate) fn check<'tcx>(cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>) {
-    // If the expression is a call (`Box::new(...)`)
-    if let ExprKind::Call(box_new, [arg]) = expr.kind
+pub(crate) fn check<'tcx>(
+    cx: &LateContext<'tcx>,
+    expr: &'tcx Expr<'tcx>,
+    box_new: &'tcx Expr<'tcx>,
+    args: &'tcx [Expr<'tcx>],
+) {
+    // If the call has a single argument (`Box::new(...)`)
+    if let [arg] = args
         // And call is of the form `<T>::something`
         // Here, it would be `<Box>::new`
         && let ExprKind::Path(QPath::TypeRelative(ty, seg)) = box_new.kind

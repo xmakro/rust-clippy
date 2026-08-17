@@ -70,9 +70,13 @@ declare_clippy_lint! {
     "`from_raw_parts` with same length and capacity"
 }
 
-pub(crate) fn check<'tcx>(cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>) {
-    if let ExprKind::Call(path_expr, args) = expr.kind
-        && let ExprKind::Path(QPath::TypeRelative(ty, fn_path)) = path_expr.kind
+pub(crate) fn check<'tcx>(
+    cx: &LateContext<'tcx>,
+    expr: &'tcx Expr<'tcx>,
+    path_expr: &'tcx Expr<'tcx>,
+    args: &'tcx [Expr<'tcx>],
+) {
+    if let ExprKind::Path(QPath::TypeRelative(ty, fn_path)) = path_expr.kind
         && fn_path.ident.name == sym::from_raw_parts
         && args.len() >= 3
         && eq_expr_value(cx, expr.span.ctxt(), &args[1], &args[2])

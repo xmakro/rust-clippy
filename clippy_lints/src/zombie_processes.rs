@@ -54,11 +54,9 @@ declare_clippy_lint! {
     "not waiting on a spawned child process"
 }
 
+/// Checks a call or method call expression.
 pub(crate) fn check<'tcx>(cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>) {
-    if let ExprKind::Call(..) | ExprKind::MethodCall(..) = expr.kind
-        && let child_ty = cx.typeck_results().expr_ty(expr)
-        && child_ty.is_diag_item(cx, sym::Child)
-    {
+    if cx.typeck_results().expr_ty(expr).is_diag_item(cx, sym::Child) {
         match cx.tcx.parent_hir_node(expr.hir_id) {
             Node::LetStmt(local)
                 if let PatKind::Binding(_, local_id, ..) = local.pat.kind

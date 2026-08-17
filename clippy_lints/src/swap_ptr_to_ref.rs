@@ -36,8 +36,13 @@ declare_clippy_lint! {
     "call to `mem::swap` using pointer derived references"
 }
 
-pub(crate) fn check<'tcx>(cx: &LateContext<'tcx>, e: &'tcx Expr<'tcx>) {
-    if let ExprKind::Call(fn_expr, [arg1, arg2]) = e.kind
+pub(crate) fn check<'tcx>(
+    cx: &LateContext<'tcx>,
+    e: &'tcx Expr<'tcx>,
+    fn_expr: &'tcx Expr<'tcx>,
+    args: &'tcx [Expr<'tcx>],
+) {
+    if let [arg1, arg2] = args
         && fn_expr.basic_res().is_diag_item(cx, sym::mem_swap)
         && let ctxt = e.span.ctxt()
         && let (from_ptr1, arg1_span) = is_ptr_to_ref(cx, arg1, ctxt)

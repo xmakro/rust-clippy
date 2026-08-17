@@ -50,8 +50,14 @@ declare_clippy_lint! {
     "constructing a `Duration` using a smaller unit when a larger unit would be more readable"
 }
 
-pub(crate) fn check<'tcx>(cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>, msrv: Msrv) {
-    if let ExprKind::Call(func, [arg]) = expr.kind
+pub(crate) fn check<'tcx>(
+    cx: &LateContext<'tcx>,
+    expr: &'tcx Expr<'tcx>,
+    func: &'tcx Expr<'tcx>,
+    args: &'tcx [Expr<'tcx>],
+    msrv: Msrv,
+) {
+    if let [arg] = args
         && let ExprKind::Path(QPath::TypeRelative(func_ty, func_name)) = func.kind
         && cx
             .typeck_results()

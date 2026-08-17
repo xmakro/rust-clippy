@@ -28,9 +28,14 @@ declare_clippy_lint! {
     "check `std::iter::Empty::default()` and replace with `std::iter::empty()`"
 }
 
-pub(crate) fn check<'tcx>(cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>) {
-    if let ExprKind::Call(iter_expr, []) = &expr.kind
-        && let ExprKind::Path(QPath::TypeRelative(ty, _)) = &iter_expr.kind
+pub(crate) fn check<'tcx>(
+    cx: &LateContext<'tcx>,
+    expr: &'tcx Expr<'tcx>,
+    func: &'tcx Expr<'tcx>,
+    args: &'tcx [Expr<'tcx>],
+) {
+    if let [] = args
+        && let ExprKind::Path(QPath::TypeRelative(ty, _)) = &func.kind
         && let TyKind::Path(ty_path) = &ty.kind
         && let QPath::Resolved(None, path) = ty_path
         && let def::Res::Def(_, def_id) = &path.res
