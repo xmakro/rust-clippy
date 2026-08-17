@@ -692,7 +692,6 @@ rustc_lint::late_lint_methods!(
         LargeStackArrays: large_stack_arrays::LargeStackArrays = large_stack_arrays::LargeStackArrays::new(conf),
         LargeConstArrays: large_const_arrays::LargeConstArrays = large_const_arrays::LargeConstArrays::new(conf),
         FloatingPointArithmetic: floating_point_arithmetic::FloatingPointArithmetic = floating_point_arithmetic::FloatingPointArithmetic,
-        AsConversions: as_conversions::AsConversions = as_conversions::AsConversions,
         LetUnderscore: let_underscore::LetUnderscore = let_underscore::LetUnderscore,
         ExcessiveBools: excessive_bools::ExcessiveBools = excessive_bools::ExcessiveBools::new(conf),
         WildcardImports: wildcard_imports::WildcardImports = wildcard_imports::WildcardImports::new(conf),
