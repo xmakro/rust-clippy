@@ -1,10 +1,8 @@
-use clippy_config::Conf;
 use clippy_utils::diagnostics::span_lint_and_sugg;
 use clippy_utils::msrvs::{self, MsrvStack};
 use rustc_ast::ast::{Expr, ExprKind};
 use rustc_errors::Applicability;
-use rustc_lint::{EarlyContext, EarlyLintPass, LintContext as _};
-use rustc_session::impl_lint_pass;
+use rustc_lint::{EarlyContext, LintContext as _};
 
 declare_clippy_lint! {
     /// ### What it does
@@ -35,45 +33,29 @@ declare_clippy_lint! {
     "checks for fields in struct literals where shorthands could be used"
 }
 
-impl_lint_pass!(RedundantFieldNames => [REDUNDANT_FIELD_NAMES]);
-
-pub struct RedundantFieldNames {
-    msrv: MsrvStack,
-}
-
-impl RedundantFieldNames {
-    pub fn new(conf: &'static Conf) -> Self {
-        Self { msrv: conf.msrv.into() }
-    }
-}
-
-impl EarlyLintPass for RedundantFieldNames {
-    fn check_expr(&mut self, cx: &EarlyContext<'_>, expr: &Expr) {
-        if let ExprKind::Struct(ref se) = expr.kind
-            && self.msrv.meets(msrvs::FIELD_INIT_SHORTHAND)
-        {
-            for field in &se.fields {
-                if !field.is_shorthand
-                    && let ExprKind::Path(None, path) = &field.expr.kind
-                    && let [segment] = path.segments.as_slice()
-                    && segment.args.is_none()
-                    && segment.ident == field.ident
-                    && field.span.eq_ctxt(field.ident.span)
-                    && !field.span.in_external_macro(cx.sess().source_map())
-                {
-                    span_lint_and_sugg(
-                        cx,
-                        REDUNDANT_FIELD_NAMES,
-                        field.span,
-                        "redundant field names in struct initialization",
-                        "replace it with",
-                        field.ident.to_string(),
-                        Applicability::MachineApplicable,
-                    );
-                }
+pub(crate) fn check_expr(cx: &EarlyContext<'_>, expr: &Expr, msrv: &MsrvStack) {
+    if let ExprKind::Struct(ref se) = expr.kind
+        && msrv.meets(msrvs::FIELD_INIT_SHORTHAND)
+    {
+        for field in &se.fields {
+            if !field.is_shorthand
+                && let ExprKind::Path(None, path) = &field.expr.kind
+                && let [segment] = path.segments.as_slice()
+                && segment.args.is_none()
+                && segment.ident == field.ident
+                && field.span.eq_ctxt(field.ident.span)
+                && !field.span.in_external_macro(cx.sess().source_map())
+            {
+                span_lint_and_sugg(
+                    cx,
+                    REDUNDANT_FIELD_NAMES,
+                    field.span,
+                    "redundant field names in struct initialization",
+                    "replace it with",
+                    field.ident.to_string(),
+                    Applicability::MachineApplicable,
+                );
             }
         }
     }
-
-    extract_msrv_attr!();
 }

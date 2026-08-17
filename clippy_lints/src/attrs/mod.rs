@@ -498,6 +498,10 @@ impl_lint_pass!(PostExpansionEarlyAttributes => [
     MIXED_ATTRIBUTES_STYLE,
     SHOULD_PANIC_WITHOUT_EXPECT,
     USELESS_ATTRIBUTE,
+    crate::almost_complete_range::ALMOST_COMPLETE_RANGE,
+    crate::redundant_field_names::REDUNDANT_FIELD_NAMES,
+    crate::redundant_static_lifetimes::REDUNDANT_STATIC_LIFETIMES,
+    crate::unnested_or_patterns::UNNESTED_OR_PATTERNS,
 ]);
 
 pub struct Attributes {
@@ -630,6 +634,29 @@ impl EarlyLintPass for PostExpansionEarlyAttributes {
         }
 
         mixed_attributes_style::check(cx, item.span, &item.attrs);
+        crate::redundant_static_lifetimes::check_item(cx, item, &self.msrv);
+    }
+
+    fn check_expr(&mut self, cx: &EarlyContext<'_>, e: &ast::Expr) {
+        crate::redundant_field_names::check_expr(cx, e, &self.msrv);
+        crate::unnested_or_patterns::check_expr(cx, e, &self.msrv);
+        crate::almost_complete_range::check_expr(cx, e, &self.msrv);
+    }
+
+    fn check_pat(&mut self, cx: &EarlyContext<'_>, p: &ast::Pat) {
+        crate::almost_complete_range::check_pat(cx, p, &self.msrv);
+    }
+
+    fn check_arm(&mut self, cx: &EarlyContext<'_>, a: &ast::Arm) {
+        crate::unnested_or_patterns::check_arm(cx, a, &self.msrv);
+    }
+
+    fn check_param(&mut self, cx: &EarlyContext<'_>, p: &ast::Param) {
+        crate::unnested_or_patterns::check_param(cx, p, &self.msrv);
+    }
+
+    fn check_local(&mut self, cx: &EarlyContext<'_>, l: &ast::Local) {
+        crate::unnested_or_patterns::check_local(cx, l, &self.msrv);
     }
 
     fn check_attributes(&mut self, cx: &EarlyContext<'_>, attrs: &[Attribute]) {
