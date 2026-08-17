@@ -2,9 +2,8 @@ use clippy_utils::diagnostics::span_lint_and_then;
 use clippy_utils::visitors::{Descend, for_each_expr_without_closures};
 use clippy_utils::{SpanlessEq, is_integer_literal};
 use rustc_hir::{AssignOpKind, BinOpKind, Block, Expr, ExprKind};
-use rustc_lint::{LateContext, LateLintPass};
+use rustc_lint::LateContext;
 use rustc_middle::ty;
-use rustc_session::declare_lint_pass;
 use rustc_span::SyntaxContext;
 use std::ops::ControlFlow;
 
@@ -37,17 +36,14 @@ declare_clippy_lint! {
     "manual zero checks before dividing integers"
 }
 
-declare_lint_pass!(ManualCheckedOps => [MANUAL_CHECKED_OPS]);
-
 #[derive(Copy, Clone)]
 enum NonZeroBranch {
     Then,
     Else,
 }
 
-impl LateLintPass<'_> for ManualCheckedOps {
-    fn check_expr(&mut self, cx: &LateContext<'_>, expr: &Expr<'_>) {
-        if let ExprKind::If(cond, then, r#else) = expr.kind
+pub(crate) fn check<'tcx>(cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>) {
+    if let ExprKind::If(cond, then, r#else) = expr.kind
             && !expr.span.from_expansion()
             && let Some((divisor, branch)) = divisor_from_condition(cond)
             // This lint is intended for unsigned integers only.
@@ -59,70 +55,69 @@ impl LateLintPass<'_> for ManualCheckedOps {
             // handling beyond the zero check.
             && is_unsigned_integer(cx, divisor)
             && let Some(block) = branch_block(then, r#else, branch)
-        {
-            let mut eq = SpanlessEq::new(cx).deny_side_effects().paths_by_resolution();
-            if !eq.eq_expr(SyntaxContext::root(), divisor, divisor) {
-                return;
-            }
-
-            let mut division_spans = Vec::new();
-            let mut first_use = None;
-
-            let found_early_use = for_each_expr_without_closures(block, |e| {
-                if let ExprKind::Binary(binop, lhs, rhs) = e.kind
-                    && binop.node == BinOpKind::Div
-                    && eq.eq_expr(SyntaxContext::root(), rhs, divisor)
-                    && is_unsigned_integer(cx, lhs)
-                {
-                    match first_use {
-                        None => first_use = Some(UseKind::Division),
-                        Some(UseKind::Other) => return ControlFlow::Break(()),
-                        Some(UseKind::Division) => {},
-                    }
-
-                    division_spans.push(e.span);
-
-                    ControlFlow::<(), _>::Continue(Descend::No)
-                } else if let ExprKind::AssignOp(op, lhs, rhs) = e.kind
-                    && op.node == AssignOpKind::DivAssign
-                    && eq.eq_expr(SyntaxContext::root(), rhs, divisor)
-                    && is_unsigned_integer(cx, lhs)
-                {
-                    match first_use {
-                        None => first_use = Some(UseKind::Division),
-                        Some(UseKind::Other) => return ControlFlow::Break(()),
-                        Some(UseKind::Division) => {},
-                    }
-
-                    division_spans.push(e.span);
-
-                    ControlFlow::<(), _>::Continue(Descend::No)
-                } else if eq.eq_expr(SyntaxContext::root(), e, divisor) {
-                    if first_use.is_none() {
-                        first_use = Some(UseKind::Other);
-                        return ControlFlow::Break(());
-                    }
-                    ControlFlow::<(), _>::Continue(Descend::Yes)
-                } else {
-                    ControlFlow::<(), _>::Continue(Descend::Yes)
-                }
-            });
-
-            if found_early_use.is_some() || first_use != Some(UseKind::Division) || division_spans.is_empty() {
-                return;
-            }
-
-            span_lint_and_then(cx, MANUAL_CHECKED_OPS, cond.span, "manual checked division", |diag| {
-                diag.span_label(cond.span, "check performed here");
-                if let Some((first, rest)) = division_spans.split_first() {
-                    diag.span_label(*first, "division performed here");
-                    if !rest.is_empty() {
-                        diag.span_labels(rest.to_vec(), "... and here");
-                    }
-                }
-                diag.help("consider using `checked_div`");
-            });
+    {
+        let mut eq = SpanlessEq::new(cx).deny_side_effects().paths_by_resolution();
+        if !eq.eq_expr(SyntaxContext::root(), divisor, divisor) {
+            return;
         }
+
+        let mut division_spans = Vec::new();
+        let mut first_use = None;
+
+        let found_early_use = for_each_expr_without_closures(block, |e| {
+            if let ExprKind::Binary(binop, lhs, rhs) = e.kind
+                && binop.node == BinOpKind::Div
+                && eq.eq_expr(SyntaxContext::root(), rhs, divisor)
+                && is_unsigned_integer(cx, lhs)
+            {
+                match first_use {
+                    None => first_use = Some(UseKind::Division),
+                    Some(UseKind::Other) => return ControlFlow::Break(()),
+                    Some(UseKind::Division) => {},
+                }
+
+                division_spans.push(e.span);
+
+                ControlFlow::<(), _>::Continue(Descend::No)
+            } else if let ExprKind::AssignOp(op, lhs, rhs) = e.kind
+                && op.node == AssignOpKind::DivAssign
+                && eq.eq_expr(SyntaxContext::root(), rhs, divisor)
+                && is_unsigned_integer(cx, lhs)
+            {
+                match first_use {
+                    None => first_use = Some(UseKind::Division),
+                    Some(UseKind::Other) => return ControlFlow::Break(()),
+                    Some(UseKind::Division) => {},
+                }
+
+                division_spans.push(e.span);
+
+                ControlFlow::<(), _>::Continue(Descend::No)
+            } else if eq.eq_expr(SyntaxContext::root(), e, divisor) {
+                if first_use.is_none() {
+                    first_use = Some(UseKind::Other);
+                    return ControlFlow::Break(());
+                }
+                ControlFlow::<(), _>::Continue(Descend::Yes)
+            } else {
+                ControlFlow::<(), _>::Continue(Descend::Yes)
+            }
+        });
+
+        if found_early_use.is_some() || first_use != Some(UseKind::Division) || division_spans.is_empty() {
+            return;
+        }
+
+        span_lint_and_then(cx, MANUAL_CHECKED_OPS, cond.span, "manual checked division", |diag| {
+            diag.span_label(cond.span, "check performed here");
+            if let Some((first, rest)) = division_spans.split_first() {
+                diag.span_label(*first, "division performed here");
+                if !rest.is_empty() {
+                    diag.span_labels(rest.to_vec(), "... and here");
+                }
+            }
+            diag.help("consider using `checked_div`");
+        });
     }
 }
 
