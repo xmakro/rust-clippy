@@ -1,4 +1,3 @@
-use clippy_config::Conf;
 use clippy_utils::diagnostics::span_lint_and_sugg;
 use clippy_utils::msrvs::{self, Msrv};
 use clippy_utils::source::snippet_with_context;
@@ -6,9 +5,8 @@ use clippy_utils::ty::peel_and_count_ty_refs;
 use clippy_utils::{expr_or_init, is_in_const_context, std_or_core, sym};
 use rustc_errors::Applicability;
 use rustc_hir::{BinOpKind, Expr, ExprKind};
-use rustc_lint::{LateContext, LateLintPass};
+use rustc_lint::LateContext;
 use rustc_middle::ty;
-use rustc_session::impl_lint_pass;
 
 declare_clippy_lint! {
     /// ### What it does
@@ -39,46 +37,32 @@ declare_clippy_lint! {
     "manual slice size calculation"
 }
 
-impl_lint_pass!(ManualSliceSizeCalculation => [MANUAL_SLICE_SIZE_CALCULATION]);
+pub(crate) fn check<'tcx>(cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>, msrv: Msrv) {
+    if let ExprKind::Binary(ref op, left, right) = expr.kind
+        && BinOpKind::Mul == op.node
+        && !expr.span.from_expansion()
+        && let Some((receiver, refs_count)) = simplify(cx, left, right)
+        && (!is_in_const_context(cx) || msrv.meets(cx, msrvs::CONST_SIZE_OF_VAL))
+    {
+        let ctxt = expr.span.ctxt();
+        let mut app = Applicability::MachineApplicable;
+        let deref = if refs_count > 0 {
+            "*".repeat(refs_count - 1)
+        } else {
+            "&".into()
+        };
+        let val_name = snippet_with_context(cx, receiver.span, ctxt, "slice", &mut app).0;
+        let Some(sugg) = std_or_core(cx) else { return };
 
-pub struct ManualSliceSizeCalculation {
-    msrv: Msrv,
-}
-
-impl ManualSliceSizeCalculation {
-    pub fn new(conf: &Conf) -> Self {
-        Self { msrv: conf.msrv.into() }
-    }
-}
-
-impl<'tcx> LateLintPass<'tcx> for ManualSliceSizeCalculation {
-    fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>) {
-        if let ExprKind::Binary(ref op, left, right) = expr.kind
-            && BinOpKind::Mul == op.node
-            && !expr.span.from_expansion()
-            && let Some((receiver, refs_count)) = simplify(cx, left, right)
-            && (!is_in_const_context(cx) || self.msrv.meets(cx, msrvs::CONST_SIZE_OF_VAL))
-        {
-            let ctxt = expr.span.ctxt();
-            let mut app = Applicability::MachineApplicable;
-            let deref = if refs_count > 0 {
-                "*".repeat(refs_count - 1)
-            } else {
-                "&".into()
-            };
-            let val_name = snippet_with_context(cx, receiver.span, ctxt, "slice", &mut app).0;
-            let Some(sugg) = std_or_core(cx) else { return };
-
-            span_lint_and_sugg(
-                cx,
-                MANUAL_SLICE_SIZE_CALCULATION,
-                expr.span,
-                "manual slice size calculation",
-                "try",
-                format!("{sugg}::mem::size_of_val({deref}{val_name})"),
-                app,
-            );
-        }
+        span_lint_and_sugg(
+            cx,
+            MANUAL_SLICE_SIZE_CALCULATION,
+            expr.span,
+            "manual slice size calculation",
+            "try",
+            format!("{sugg}::mem::size_of_val({deref}{val_name})"),
+            app,
+        );
     }
 }
 

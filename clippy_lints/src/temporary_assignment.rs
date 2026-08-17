@@ -1,8 +1,7 @@
 use clippy_utils::diagnostics::span_lint;
 use clippy_utils::is_adjusted;
 use rustc_hir::{Expr, ExprKind};
-use rustc_lint::{LateContext, LateLintPass};
-use rustc_session::declare_lint_pass;
+use rustc_lint::LateContext;
 
 declare_clippy_lint! {
     /// ### What it does
@@ -23,22 +22,18 @@ declare_clippy_lint! {
     "assignments to temporaries"
 }
 
-declare_lint_pass!(TemporaryAssignment => [TEMPORARY_ASSIGNMENT]);
-
 fn is_temporary(expr: &Expr<'_>) -> bool {
     matches!(&expr.kind, ExprKind::Struct(..) | ExprKind::Tup(..))
 }
 
-impl<'tcx> LateLintPass<'tcx> for TemporaryAssignment {
-    fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'_>) {
-        if let ExprKind::Assign(target, ..) = &expr.kind {
-            let mut base = target;
-            while let ExprKind::Field(f, _) | ExprKind::Index(f, _, _) = &base.kind {
-                base = f;
-            }
-            if is_temporary(base) && !is_adjusted(cx, base) {
-                span_lint(cx, TEMPORARY_ASSIGNMENT, expr.span, "assignment to temporary");
-            }
+pub(crate) fn check<'tcx>(cx: &LateContext<'tcx>, expr: &'tcx Expr<'_>) {
+    if let ExprKind::Assign(target, ..) = &expr.kind {
+        let mut base = target;
+        while let ExprKind::Field(f, _) | ExprKind::Index(f, _, _) = &base.kind {
+            base = f;
+        }
+        if is_temporary(base) && !is_adjusted(cx, base) {
+            span_lint(cx, TEMPORARY_ASSIGNMENT, expr.span, "assignment to temporary");
         }
     }
 }

@@ -1,4 +1,3 @@
-use clippy_config::Conf;
 use clippy_utils::consts::{ConstEvalCtxt, FullInt};
 use clippy_utils::diagnostics::span_lint_and_sugg;
 use clippy_utils::is_in_const_context;
@@ -7,8 +6,7 @@ use clippy_utils::res::MaybeResPath as _;
 use clippy_utils::source::snippet_with_context;
 use rustc_errors::Applicability;
 use rustc_hir::{BinOpKind, Expr, ExprKind, Node, TyKind};
-use rustc_lint::{LateContext, LateLintPass, LintContext as _};
-use rustc_session::impl_lint_pass;
+use rustc_lint::{LateContext, LintContext as _};
 use rustc_span::SyntaxContext;
 
 declare_clippy_lint! {
@@ -35,69 +33,55 @@ declare_clippy_lint! {
     "manually reimplementing `rem_euclid`"
 }
 
-impl_lint_pass!(ManualRemEuclid => [MANUAL_REM_EUCLID]);
-
-pub struct ManualRemEuclid {
-    msrv: Msrv,
-}
-
-impl ManualRemEuclid {
-    pub fn new(conf: &'static Conf) -> Self {
-        Self { msrv: conf.msrv.into() }
-    }
-}
-
-impl<'tcx> LateLintPass<'tcx> for ManualRemEuclid {
-    fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'_>) {
-        // (x % c + c) % c
-        if let ExprKind::Binary(rem_op, rem_lhs, rem_rhs) = expr.kind
-            && rem_op.node == BinOpKind::Rem
-            && let ExprKind::Binary(add_op, add_lhs, add_rhs) = rem_lhs.kind
-            && add_op.node == BinOpKind::Add
-            && let ctxt = expr.span.ctxt()
-            && rem_lhs.span.ctxt() == ctxt
-            && rem_rhs.span.ctxt() == ctxt
-            && add_lhs.span.ctxt() == ctxt
-            && add_rhs.span.ctxt() == ctxt
-            && !expr.span.in_external_macro(cx.sess().source_map())
-            && let Some(const1) = check_for_unsigned_int_constant(cx, ctxt, rem_rhs)
-            && let Some((const2, add_other)) = check_for_either_unsigned_int_constant(cx, ctxt, add_lhs, add_rhs)
-            && let ExprKind::Binary(rem2_op, rem2_lhs, rem2_rhs) = add_other.kind
-            && rem2_op.node == BinOpKind::Rem
-            && const1 == const2
-            && let Some(hir_id) = rem2_lhs.res_local_id()
-            && let Some(const3) = check_for_unsigned_int_constant(cx, ctxt, rem2_rhs)
-            // Also ensures the const is nonzero since zero can't be a divisor
-            && const2 == const3
-            && rem2_lhs.span.ctxt() == ctxt
-            && rem2_rhs.span.ctxt() == ctxt
-            && self.msrv.meets(cx, msrvs::REM_EUCLID)
-            && (self.msrv.meets(cx, msrvs::REM_EUCLID_CONST) || !is_in_const_context(cx))
-        {
-            // Apply only to params or locals with annotated types
-            match cx.tcx.parent_hir_node(hir_id) {
-                Node::Param(..) => (),
-                Node::LetStmt(local) => {
-                    let Some(ty) = local.ty else { return };
-                    if matches!(ty.kind, TyKind::Infer(())) {
-                        return;
-                    }
-                },
-                _ => return,
-            }
-
-            let mut app = Applicability::MachineApplicable;
-            let rem_of = snippet_with_context(cx, rem2_lhs.span, ctxt, "_", &mut app).0;
-            span_lint_and_sugg(
-                cx,
-                MANUAL_REM_EUCLID,
-                expr.span,
-                "manual `rem_euclid` implementation",
-                "consider using",
-                format!("{rem_of}.rem_euclid({const1})"),
-                app,
-            );
+pub(crate) fn check<'tcx>(cx: &LateContext<'tcx>, expr: &'tcx Expr<'_>, msrv: Msrv) {
+    // (x % c + c) % c
+    if let ExprKind::Binary(rem_op, rem_lhs, rem_rhs) = expr.kind
+        && rem_op.node == BinOpKind::Rem
+        && let ExprKind::Binary(add_op, add_lhs, add_rhs) = rem_lhs.kind
+        && add_op.node == BinOpKind::Add
+        && let ctxt = expr.span.ctxt()
+        && rem_lhs.span.ctxt() == ctxt
+        && rem_rhs.span.ctxt() == ctxt
+        && add_lhs.span.ctxt() == ctxt
+        && add_rhs.span.ctxt() == ctxt
+        && !expr.span.in_external_macro(cx.sess().source_map())
+        && let Some(const1) = check_for_unsigned_int_constant(cx, ctxt, rem_rhs)
+        && let Some((const2, add_other)) = check_for_either_unsigned_int_constant(cx, ctxt, add_lhs, add_rhs)
+        && let ExprKind::Binary(rem2_op, rem2_lhs, rem2_rhs) = add_other.kind
+        && rem2_op.node == BinOpKind::Rem
+        && const1 == const2
+        && let Some(hir_id) = rem2_lhs.res_local_id()
+        && let Some(const3) = check_for_unsigned_int_constant(cx, ctxt, rem2_rhs)
+        // Also ensures the const is nonzero since zero can't be a divisor
+        && const2 == const3
+        && rem2_lhs.span.ctxt() == ctxt
+        && rem2_rhs.span.ctxt() == ctxt
+        && msrv.meets(cx, msrvs::REM_EUCLID)
+        && (msrv.meets(cx, msrvs::REM_EUCLID_CONST) || !is_in_const_context(cx))
+    {
+        // Apply only to params or locals with annotated types
+        match cx.tcx.parent_hir_node(hir_id) {
+            Node::Param(..) => (),
+            Node::LetStmt(local) => {
+                let Some(ty) = local.ty else { return };
+                if matches!(ty.kind, TyKind::Infer(())) {
+                    return;
+                }
+            },
+            _ => return,
         }
+
+        let mut app = Applicability::MachineApplicable;
+        let rem_of = snippet_with_context(cx, rem2_lhs.span, ctxt, "_", &mut app).0;
+        span_lint_and_sugg(
+            cx,
+            MANUAL_REM_EUCLID,
+            expr.span,
+            "manual `rem_euclid` implementation",
+            "consider using",
+            format!("{rem_of}.rem_euclid({const1})"),
+            app,
+        );
     }
 }
 

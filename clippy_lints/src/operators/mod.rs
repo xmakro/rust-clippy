@@ -1025,6 +1025,18 @@ impl_lint_pass!(Operators => [
     REDUNDANT_COMPARISONS,
     SELF_ASSIGNMENT,
     VERBOSE_BIT_MASK,
+    crate::bool_comparison::BOOL_COMPARISON,
+    crate::manual_bits::MANUAL_BITS,
+    crate::manual_float_methods::MANUAL_IS_FINITE,
+    crate::manual_float_methods::MANUAL_IS_INFINITE,
+    crate::manual_rem_euclid::MANUAL_REM_EUCLID,
+    crate::manual_slice_size_calculation::MANUAL_SLICE_SIZE_CALCULATION,
+    crate::neg_cmp_op_on_partial_ord::NEG_CMP_OP_ON_PARTIAL_ORD,
+    crate::neg_multiply::NEG_MULTIPLY,
+    crate::suspicious_trait_impl::SUSPICIOUS_ARITHMETIC_IMPL,
+    crate::suspicious_trait_impl::SUSPICIOUS_OP_ASSIGN_IMPL,
+    crate::temporary_assignment::TEMPORARY_ASSIGNMENT,
+    crate::zero_div_zero::ZERO_DIVIDED_BY_ZERO,
 ]);
 
 pub struct Operators {
@@ -1051,6 +1063,14 @@ impl<'tcx> LateLintPass<'tcx> for Operators {
         float_cmp::check_assert(cx, e);
         match e.kind {
             ExprKind::Binary(op, lhs, rhs) => {
+                crate::zero_div_zero::check(cx, e);
+                crate::neg_multiply::check(cx, e);
+                crate::manual_bits::check(cx, e, self.msrv);
+                crate::manual_rem_euclid::check(cx, e, self.msrv);
+                crate::manual_slice_size_calculation::check(cx, e, self.msrv);
+                crate::manual_float_methods::check(cx, e, self.msrv);
+                crate::bool_comparison::check(cx, e);
+                crate::suspicious_trait_impl::check(cx, e);
                 if !e.span.from_expansion() {
                     absurd_extreme_comparisons::check(cx, e, op.node, lhs, rhs);
                     if !(macro_with_not_op(lhs) || macro_with_not_op(rhs)) {
@@ -1089,6 +1109,7 @@ impl<'tcx> LateLintPass<'tcx> for Operators {
                 manual_div_ceil::check(cx, e, op.node, lhs, rhs, self.msrv);
             },
             ExprKind::AssignOp(op, lhs, rhs) => {
+                crate::suspicious_trait_impl::check(cx, e);
                 let bin_op = op.node.into();
                 if !e.span.from_expansion() {
                     decimal_bitwise_operands::check(cx, bin_op, lhs, rhs);
@@ -1098,11 +1119,14 @@ impl<'tcx> LateLintPass<'tcx> for Operators {
                 modulo_arithmetic::check(cx, e, bin_op, lhs, rhs, false);
             },
             ExprKind::Assign(lhs, rhs, _) => {
+                crate::temporary_assignment::check(cx, e);
                 assign_op_pattern::check(cx, e, lhs, rhs, self.msrv);
                 self_assignment::check(cx, e, lhs, rhs);
             },
-            ExprKind::Unary(op, arg) =>
-            {
+            ExprKind::Unary(op, arg) => {
+                // `neg_cmp_op_on_partial_ord` matches `!(a < b)`, a unary expression, so it lives
+                // here rather than in the `Binary` arm.
+                crate::neg_cmp_op_on_partial_ord::check(cx, e);
                 #[expect(clippy::collapsible_match)]
                 if op == UnOp::Neg {
                     self.arithmetic_context.check_negate(cx, e, arg);
