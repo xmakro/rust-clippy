@@ -4,9 +4,8 @@ use clippy_utils::source::snippet_with_context;
 use clippy_utils::ty::implements_trait;
 use rustc_errors::Applicability;
 use rustc_hir::{Expr, ExprKind, Pat, PatKind};
-use rustc_lint::{LateContext, LateLintPass, LintContext as _};
+use rustc_lint::{LateContext, LintContext as _};
 use rustc_middle::ty::Ty;
-use rustc_session::declare_lint_pass;
 
 declare_clippy_lint! {
     /// ### What it does
@@ -37,8 +36,6 @@ declare_clippy_lint! {
     nursery,
     "using pattern matching instead of equality"
 }
-
-declare_lint_pass!(PatternEquality => [EQUATABLE_IF_LET]);
 
 /// detects if pattern matches just one thing
 fn is_unary_pattern(pat: &Pat<'_>) -> bool {
@@ -101,68 +98,66 @@ fn contains_type_mismatch(cx: &LateContext<'_>, pat: &Pat<'_>) -> bool {
     result
 }
 
-impl<'tcx> LateLintPass<'tcx> for PatternEquality {
-    fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>) {
-        if let ExprKind::Let(let_expr) = expr.kind
-            && is_unary_pattern(let_expr.pat)
-            && !expr.span.from_expansion()
-            && !let_expr.pat.span.from_expansion()
-            && !let_expr.init.span.from_expansion()
+pub(crate) fn check<'tcx>(cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>) {
+    if let ExprKind::Let(let_expr) = expr.kind
+        && is_unary_pattern(let_expr.pat)
+        && !expr.span.from_expansion()
+        && !let_expr.pat.span.from_expansion()
+        && !let_expr.init.span.from_expansion()
+    {
+        let exp_ty = cx.typeck_results().expr_ty(let_expr.init);
+        let pat_ty = cx.typeck_results().pat_ty(let_expr.pat);
+
+        let mut app = Applicability::MachineApplicable;
+        let ctxt = expr.span.ctxt();
+
+        if is_structural_partial_eq(cx, exp_ty, pat_ty)
+            && !contains_type_mismatch(cx, let_expr.pat)
+            // Calls to trait methods (`PartialEq::eq` in this case) aren't stable yet. We could _technically_
+            // try looking at whether:
+            // 1) features `const_trait_impl` and `const_cmp` are enabled
+            // 2) implementation of `PartialEq<Rhs=PatTy> for ExpTy` has `fn eq` that is `const`
+            //
+            // but that didn't quite work out (see #15482), so we just reject outright in this case
+            && !is_in_const_context(cx)
         {
-            let exp_ty = cx.typeck_results().expr_ty(let_expr.init);
-            let pat_ty = cx.typeck_results().pat_ty(let_expr.pat);
+            span_lint_and_then(
+                cx,
+                EQUATABLE_IF_LET,
+                expr.span,
+                "this pattern matching can be expressed using equality",
+                |diag| {
+                    let pat_str = {
+                        let str = snippet_with_context(cx, let_expr.pat.span, ctxt, "..", &mut app).0;
+                        if let PatKind::Struct(..) = let_expr.pat.kind {
+                            format!("({str})").into()
+                        } else {
+                            str
+                        }
+                    };
 
-            let mut app = Applicability::MachineApplicable;
-            let ctxt = expr.span.ctxt();
-
-            if is_structural_partial_eq(cx, exp_ty, pat_ty)
-                && !contains_type_mismatch(cx, let_expr.pat)
-                // Calls to trait methods (`PartialEq::eq` in this case) aren't stable yet. We could _technically_
-                // try looking at whether:
-                // 1) features `const_trait_impl` and `const_cmp` are enabled
-                // 2) implementation of `PartialEq<Rhs=PatTy> for ExpTy` has `fn eq` that is `const`
-                //
-                // but that didn't quite work out (see #15482), so we just reject outright in this case
-                && !is_in_const_context(cx)
-            {
-                span_lint_and_then(
-                    cx,
-                    EQUATABLE_IF_LET,
-                    expr.span,
-                    "this pattern matching can be expressed using equality",
-                    |diag| {
-                        let pat_str = {
-                            let str = snippet_with_context(cx, let_expr.pat.span, ctxt, "..", &mut app).0;
-                            if let PatKind::Struct(..) = let_expr.pat.kind {
-                                format!("({str})").into()
-                            } else {
-                                str
-                            }
-                        };
-
-                        let sugg = format!(
-                            "{} == {pat_str}",
-                            snippet_with_context(cx, let_expr.init.span, ctxt, "..", &mut app).0,
-                        );
-                        diag.span_suggestion(expr.span, "try", sugg, app);
-                    },
-                );
-            } else {
-                span_lint_and_then(
-                    cx,
-                    EQUATABLE_IF_LET,
-                    expr.span,
-                    "this pattern matching can be expressed using `matches!`",
-                    |diag| {
-                        let sugg = format!(
-                            "matches!({}, {})",
-                            snippet_with_context(cx, let_expr.init.span, ctxt, "..", &mut app).0,
-                            snippet_with_context(cx, let_expr.pat.span, ctxt, "..", &mut app).0,
-                        );
-                        diag.span_suggestion(expr.span, "try", sugg, app);
-                    },
-                );
-            }
+                    let sugg = format!(
+                        "{} == {pat_str}",
+                        snippet_with_context(cx, let_expr.init.span, ctxt, "..", &mut app).0,
+                    );
+                    diag.span_suggestion(expr.span, "try", sugg, app);
+                },
+            );
+        } else {
+            span_lint_and_then(
+                cx,
+                EQUATABLE_IF_LET,
+                expr.span,
+                "this pattern matching can be expressed using `matches!`",
+                |diag| {
+                    let sugg = format!(
+                        "matches!({}, {})",
+                        snippet_with_context(cx, let_expr.init.span, ctxt, "..", &mut app).0,
+                        snippet_with_context(cx, let_expr.pat.span, ctxt, "..", &mut app).0,
+                    );
+                    diag.span_suggestion(expr.span, "try", sugg, app);
+                },
+            );
         }
     }
 }
