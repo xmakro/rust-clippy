@@ -1,4 +1,3 @@
-use clippy_config::Conf;
 use clippy_utils::diagnostics::{span_lint_and_help, span_lint_and_sugg, span_lint_and_then};
 use clippy_utils::msrvs::{self, Msrv};
 use clippy_utils::res::MaybeDef as _;
@@ -10,8 +9,7 @@ use clippy_utils::{
 };
 use rustc_errors::Applicability;
 use rustc_hir::{Expr, ExprKind};
-use rustc_lint::{LateContext, LateLintPass};
-use rustc_session::impl_lint_pass;
+use rustc_lint::LateContext;
 use rustc_span::Span;
 
 declare_clippy_lint! {
@@ -123,13 +121,6 @@ declare_clippy_lint! {
     correctness,
     "`mem::replace(&mut _, mem::uninitialized())` or `mem::replace(&mut _, mem::zeroed())`"
 }
-
-impl_lint_pass!(MemReplace => [
-    MEM_REPLACE_OPTION_WITH_NONE,
-    MEM_REPLACE_OPTION_WITH_SOME,
-    MEM_REPLACE_WITH_DEFAULT,
-    MEM_REPLACE_WITH_UNINIT,
-]);
 
 fn check_replace_option_with_none(cx: &LateContext<'_>, src: &Expr<'_>, dest: &Expr<'_>, expr_span: Span) -> bool {
     if is_none_expr(cx, src) {
@@ -286,29 +277,17 @@ fn check_replace_with_default(
     }
 }
 
-pub struct MemReplace {
-    msrv: Msrv,
-}
-
-impl MemReplace {
-    pub fn new(conf: &'static Conf) -> Self {
-        Self { msrv: conf.msrv.into() }
-    }
-}
-
-impl<'tcx> LateLintPass<'tcx> for MemReplace {
-    fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'_>) {
-        if let ExprKind::Call(func, [dest, src]) = expr.kind
-            // Check that `expr` is a call to `mem::replace()`
-            && let ExprKind::Path(ref func_qpath) = func.kind
-            && let Some(def_id) = cx.qpath_res(func_qpath, func.hir_id).opt_def_id()
-            && cx.tcx.is_diagnostic_item(sym::mem_replace, def_id)
-            // Check that second argument is `Option::None`
-            && !check_replace_option_with_none(cx, src, dest, expr.span)
-            && !check_replace_option_with_some(cx, src, dest, expr.span, self.msrv)
-            && !check_replace_with_default(cx, src, dest, expr, self.msrv)
-        {
-            check_replace_with_uninit(cx, src, dest, expr.span);
-        }
+pub(crate) fn check<'tcx>(cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>, msrv: Msrv) {
+    if let ExprKind::Call(func, [dest, src]) = expr.kind
+        // Check that `expr` is a call to `mem::replace()`
+        && let ExprKind::Path(ref func_qpath) = func.kind
+        && let Some(def_id) = cx.qpath_res(func_qpath, func.hir_id).opt_def_id()
+        && cx.tcx.is_diagnostic_item(sym::mem_replace, def_id)
+        // Check that second argument is `Option::None`
+        && !check_replace_option_with_none(cx, src, dest, expr.span)
+        && !check_replace_option_with_some(cx, src, dest, expr.span, msrv)
+        && !check_replace_with_default(cx, src, dest, expr, msrv)
+    {
+        check_replace_with_uninit(cx, src, dest, expr.span);
     }
 }

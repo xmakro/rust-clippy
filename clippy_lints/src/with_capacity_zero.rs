@@ -3,9 +3,8 @@ use clippy_utils::res::MaybeDef as _;
 use clippy_utils::{fn_def_id, is_integer_literal, last_path_segment, span_contains_comment, sym};
 use rustc_errors::Applicability;
 use rustc_hir::{Expr, ExprKind, LangItem};
-use rustc_lint::{LateContext, LateLintPass};
+use rustc_lint::LateContext;
 use rustc_middle::ty::Ty;
-use rustc_session::declare_lint_pass;
 
 declare_clippy_lint! {
     /// ### What it does
@@ -32,8 +31,6 @@ declare_clippy_lint! {
     "calling `with_capacity(0)` which is equivalent to `new()`"
 }
 
-declare_lint_pass!(WithCapacityZero => [WITH_CAPACITY_ZERO]);
-
 fn is_target_type(cx: &LateContext<'_>, ty: Ty<'_>) -> bool {
     let ty = ty.peel_refs();
     ty.is_lang_item(cx, LangItem::String)
@@ -45,34 +42,32 @@ fn is_target_type(cx: &LateContext<'_>, ty: Ty<'_>) -> bool {
         )
 }
 
-impl<'tcx> LateLintPass<'tcx> for WithCapacityZero {
-    fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'_>) {
-        if !expr.span.from_expansion()
-            && let ExprKind::Call(func, [arg]) = expr.kind
-            && let Some(def_id) = fn_def_id(cx, expr)
-            && cx.tcx.item_name(def_id) == sym::with_capacity
-            && is_integer_literal(arg, 0)
-            && let ExprKind::Path(ref qpath) = func.kind
-            && let ty = cx.typeck_results().expr_ty(expr)
-            && is_target_type(cx, ty)
-        {
-            let last_seg = last_path_segment(qpath);
-            let sugg_span = last_seg.ident.span.with_hi(expr.span.hi());
-            let app = if span_contains_comment(cx, expr.span) {
-                Applicability::MaybeIncorrect
-            } else {
-                Applicability::MachineApplicable
-            };
+pub(crate) fn check<'tcx>(cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>) {
+    if !expr.span.from_expansion()
+        && let ExprKind::Call(func, [arg]) = expr.kind
+        && let Some(def_id) = fn_def_id(cx, expr)
+        && cx.tcx.item_name(def_id) == sym::with_capacity
+        && is_integer_literal(arg, 0)
+        && let ExprKind::Path(ref qpath) = func.kind
+        && let ty = cx.typeck_results().expr_ty(expr)
+        && is_target_type(cx, ty)
+    {
+        let last_seg = last_path_segment(qpath);
+        let sugg_span = last_seg.ident.span.with_hi(expr.span.hi());
+        let app = if span_contains_comment(cx, expr.span) {
+            Applicability::MaybeIncorrect
+        } else {
+            Applicability::MachineApplicable
+        };
 
-            span_lint_and_then(
-                cx,
-                WITH_CAPACITY_ZERO,
-                expr.span,
-                "calling `with_capacity(0)` is equivalent to `new()`",
-                |diag| {
-                    diag.span_suggestion_verbose(sugg_span, "use `new()` instead", "new()", app);
-                },
-            );
-        }
+        span_lint_and_then(
+            cx,
+            WITH_CAPACITY_ZERO,
+            expr.span,
+            "calling `with_capacity(0)` is equivalent to `new()`",
+            |diag| {
+                diag.span_suggestion_verbose(sugg_span, "use `new()` instead", "new()", app);
+            },
+        );
     }
 }

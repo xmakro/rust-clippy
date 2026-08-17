@@ -8,9 +8,8 @@ use rustc_errors::Applicability;
 use rustc_hir::def_id::LocalDefId;
 use rustc_hir::intravisit::{Visitor, walk_block, walk_expr};
 use rustc_hir::{Expr, ExprKind, HirId, LetStmt, Node, PatKind, Stmt, StmtKind};
-use rustc_lint::{LateContext, LateLintPass};
+use rustc_lint::LateContext;
 use rustc_middle::hir::nested_filter;
-use rustc_session::declare_lint_pass;
 use rustc_span::Span;
 use std::ops::ControlFlow;
 
@@ -55,65 +54,61 @@ declare_clippy_lint! {
     "not waiting on a spawned child process"
 }
 
-declare_lint_pass!(ZombieProcesses => [ZOMBIE_PROCESSES]);
+pub(crate) fn check<'tcx>(cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>) {
+    if let ExprKind::Call(..) | ExprKind::MethodCall(..) = expr.kind
+        && let child_ty = cx.typeck_results().expr_ty(expr)
+        && child_ty.is_diag_item(cx, sym::Child)
+    {
+        match cx.tcx.parent_hir_node(expr.hir_id) {
+            Node::LetStmt(local)
+                if let PatKind::Binding(_, local_id, ..) = local.pat.kind
+                    && let Some(enclosing_block) = get_enclosing_block(cx, expr.hir_id) =>
+            {
+                let mut vis = WaitFinder {
+                    cx,
+                    local_id,
+                    create_id: expr.hir_id,
+                    body_id: cx.tcx.hir_enclosing_body_owner(expr.hir_id),
+                    state: VisitorState::WalkUpToCreate,
+                    early_return: None,
+                    missing_wait_branch: None,
+                };
 
-impl<'tcx> LateLintPass<'tcx> for ZombieProcesses {
-    fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>) {
-        if let ExprKind::Call(..) | ExprKind::MethodCall(..) = expr.kind
-            && let child_ty = cx.typeck_results().expr_ty(expr)
-            && child_ty.is_diag_item(cx, sym::Child)
-        {
-            match cx.tcx.parent_hir_node(expr.hir_id) {
-                Node::LetStmt(local)
-                    if let PatKind::Binding(_, local_id, ..) = local.pat.kind
-                        && let Some(enclosing_block) = get_enclosing_block(cx, expr.hir_id) =>
-                {
-                    let mut vis = WaitFinder {
-                        cx,
-                        local_id,
-                        create_id: expr.hir_id,
-                        body_id: cx.tcx.hir_enclosing_body_owner(expr.hir_id),
-                        state: VisitorState::WalkUpToCreate,
-                        early_return: None,
-                        missing_wait_branch: None,
-                    };
+                let res = (
+                    walk_block(&mut vis, enclosing_block),
+                    vis.missing_wait_branch,
+                    vis.early_return,
+                );
 
-                    let res = (
-                        walk_block(&mut vis, enclosing_block),
-                        vis.missing_wait_branch,
-                        vis.early_return,
-                    );
+                let cause = match res {
+                    (Break(MaybeWait(wait_span)), _, Some(return_span)) => {
+                        Cause::EarlyReturn { wait_span, return_span }
+                    },
+                    (Break(MaybeWait(_)), _, None) => return,
+                    (Continue(()), None, _) => Cause::NeverWait,
+                    (Continue(()), Some(MissingWaitBranch::MissingElse { if_span, wait_span }), _) => {
+                        Cause::MissingElse { wait_span, if_span }
+                    },
+                    (Continue(()), Some(MissingWaitBranch::MissingWaitInBranch { branch_span, wait_span }), _) => {
+                        Cause::MissingWaitInBranch { wait_span, branch_span }
+                    },
+                };
 
-                    let cause = match res {
-                        (Break(MaybeWait(wait_span)), _, Some(return_span)) => {
-                            Cause::EarlyReturn { wait_span, return_span }
-                        },
-                        (Break(MaybeWait(_)), _, None) => return,
-                        (Continue(()), None, _) => Cause::NeverWait,
-                        (Continue(()), Some(MissingWaitBranch::MissingElse { if_span, wait_span }), _) => {
-                            Cause::MissingElse { wait_span, if_span }
-                        },
-                        (Continue(()), Some(MissingWaitBranch::MissingWaitInBranch { branch_span, wait_span }), _) => {
-                            Cause::MissingWaitInBranch { wait_span, branch_span }
-                        },
-                    };
-
-                    // Don't emit a suggestion since the binding is used later
-                    check(cx, expr, cause, false);
-                },
-                Node::LetStmt(&LetStmt { pat, .. }) if let PatKind::Wild = pat.kind => {
-                    // `let _ = child;`, also dropped immediately without `wait()`ing
-                    check(cx, expr, Cause::NeverWait, true);
-                },
-                Node::Stmt(&Stmt {
-                    kind: StmtKind::Semi(_),
-                    ..
-                }) => {
-                    // Immediately dropped. E.g. `std::process::Command::new("echo").spawn().unwrap();`
-                    check(cx, expr, Cause::NeverWait, true);
-                },
-                _ => {},
-            }
+                // Don't emit a suggestion since the binding is used later
+                report(cx, expr, cause, false);
+            },
+            Node::LetStmt(&LetStmt { pat, .. }) if let PatKind::Wild = pat.kind => {
+                // `let _ = child;`, also dropped immediately without `wait()`ing
+                report(cx, expr, Cause::NeverWait, true);
+            },
+            Node::Stmt(&Stmt {
+                kind: StmtKind::Semi(_),
+                ..
+            }) => {
+                // Immediately dropped. E.g. `std::process::Command::new("echo").spawn().unwrap();`
+                report(cx, expr, Cause::NeverWait, true);
+            },
+            _ => {},
         }
     }
 }
@@ -295,7 +290,7 @@ impl Cause {
 /// `let _ = <expr that spawns child>;`.
 ///
 /// This checks if the program doesn't unconditionally exit after the spawn expression.
-fn check<'tcx>(cx: &LateContext<'tcx>, spawn_expr: &'tcx Expr<'tcx>, cause: Cause, emit_suggestion: bool) {
+fn report<'tcx>(cx: &LateContext<'tcx>, spawn_expr: &'tcx Expr<'tcx>, cause: Cause, emit_suggestion: bool) {
     let Some(block) = get_enclosing_block(cx, spawn_expr.hir_id) else {
         return;
     };
