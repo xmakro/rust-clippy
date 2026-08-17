@@ -2,10 +2,9 @@ use clippy_utils::diagnostics::span_lint;
 use clippy_utils::res::MaybeDef;
 use clippy_utils::sym;
 use rustc_hir::{Expr, ExprKind};
-use rustc_lint::{LateContext, LateLintPass};
+use rustc_lint::LateContext;
 use rustc_middle::ty::layout::LayoutOf;
 use rustc_middle::ty::{self, Ty, TypeVisitableExt};
-use rustc_session::declare_lint_pass;
 
 declare_clippy_lint! {
     /// ### What it does
@@ -57,8 +56,6 @@ declare_clippy_lint! {
     nursery,
     "warn about volatile read/write applied to composite types"
 }
-
-declare_lint_pass!(VolatileComposites => [VOLATILE_COMPOSITES]);
 
 /// Zero-sized types are intrinsically safe to use volatile on since they won't
 /// actually generate *any* loads or stores. But this is also used to skip zero-sized
@@ -141,41 +138,39 @@ fn report_volatile_safe<'tcx>(cx: &LateContext<'tcx>, expr: &Expr<'tcx>, ty: Ty<
     }
 }
 
-impl<'tcx> LateLintPass<'tcx> for VolatileComposites {
-    fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &Expr<'tcx>) {
-        // Check our expr is calling a method with pattern matching
-        match expr.kind {
-            // Look for method calls to `write_volatile`/`read_volatile`, which
-            // apply to both raw pointers and std::ptr::NonNull.
-            ExprKind::MethodCall(name, self_arg, _, _)
-                if matches!(name.ident.name, sym::read_volatile | sym::write_volatile) =>
-            {
-                let self_ty = cx.typeck_results().expr_ty(self_arg);
-                match self_ty.kind() {
-                    // Raw pointers
-                    ty::RawPtr(innerty, _) => report_volatile_safe(cx, expr, *innerty),
-                    // std::ptr::NonNull
-                    ty::Adt(_, args) if self_ty.is_diag_item(cx, sym::NonNull) => {
-                        report_volatile_safe(cx, expr, args.type_at(0));
-                    },
-                    _ => (),
-                }
-            },
+pub(crate) fn check<'tcx>(cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>) {
+    // Check our expr is calling a method with pattern matching
+    match expr.kind {
+        // Look for method calls to `write_volatile`/`read_volatile`, which
+        // apply to both raw pointers and std::ptr::NonNull.
+        ExprKind::MethodCall(name, self_arg, _, _)
+            if matches!(name.ident.name, sym::read_volatile | sym::write_volatile) =>
+        {
+            let self_ty = cx.typeck_results().expr_ty(self_arg);
+            match self_ty.kind() {
+                // Raw pointers
+                ty::RawPtr(innerty, _) => report_volatile_safe(cx, expr, *innerty),
+                // std::ptr::NonNull
+                ty::Adt(_, args) if self_ty.is_diag_item(cx, sym::NonNull) => {
+                    report_volatile_safe(cx, expr, args.type_at(0));
+                },
+                _ => (),
+            }
+        },
 
-            // Also plain function calls to std::ptr::{read,write}_volatile
-            ExprKind::Call(func, [arg_ptr, ..]) => {
-                if let ExprKind::Path(ref qpath) = func.kind
-                    && let Some(def_id) = cx.qpath_res(qpath, func.hir_id).opt_def_id()
-                    && matches!(
-                        cx.tcx.get_diagnostic_name(def_id),
-                        Some(sym::ptr_read_volatile | sym::ptr_write_volatile)
-                    )
-                    && let ty::RawPtr(ptrty, _) = cx.typeck_results().expr_ty_adjusted(arg_ptr).kind()
-                {
-                    report_volatile_safe(cx, expr, *ptrty);
-                }
-            },
-            _ => {},
-        }
+        // Also plain function calls to std::ptr::{read,write}_volatile
+        ExprKind::Call(func, [arg_ptr, ..]) => {
+            if let ExprKind::Path(ref qpath) = func.kind
+                && let Some(def_id) = cx.qpath_res(qpath, func.hir_id).opt_def_id()
+                && matches!(
+                    cx.tcx.get_diagnostic_name(def_id),
+                    Some(sym::ptr_read_volatile | sym::ptr_write_volatile)
+                )
+                && let ty::RawPtr(ptrty, _) = cx.typeck_results().expr_ty_adjusted(arg_ptr).kind()
+            {
+                report_volatile_safe(cx, expr, *ptrty);
+            }
+        },
+        _ => {},
     }
 }

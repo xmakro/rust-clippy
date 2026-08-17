@@ -1,4 +1,3 @@
-use clippy_config::Conf;
 use clippy_utils::diagnostics::span_lint_and_then;
 use clippy_utils::msrvs::{self, Msrv};
 use clippy_utils::res::MaybeDef;
@@ -8,9 +7,7 @@ use clippy_utils::{eq_expr_value, is_else_clause, is_lang_item_or_ctor, span_con
 use rustc_ast::LitKind;
 use rustc_errors::{Applicability, MultiSpan};
 use rustc_hir::{BlockCheckMode, Expr, ExprKind, LangItem, PatKind, StmtKind, UnsafeSource};
-use rustc_lint::{LateContext, LateLintPass};
-use rustc_middle::ty::TyCtxt;
-use rustc_session::impl_lint_pass;
+use rustc_lint::LateContext;
 use rustc_span::{BytePos, Span, Symbol};
 use std::fmt;
 use std::ops::ControlFlow;
@@ -57,28 +54,17 @@ declare_clippy_lint! {
     "manual implementation of `pop_if` methods"
 }
 
-impl_lint_pass!(ManualPopIf => [MANUAL_POP_IF]);
-
-pub struct ManualPopIf {
+fn msrv_compatible(
+    cx: &LateContext<'_>,
+    kind: ManualPopIfKind,
     msrv: Msrv,
     binary_heap_pop_if_feature_enabled: bool,
-}
-
-impl ManualPopIf {
-    pub fn new(tcx: TyCtxt<'_>, conf: &'static Conf) -> Self {
-        Self {
-            msrv: conf.msrv,
-            binary_heap_pop_if_feature_enabled: tcx.features().enabled(sym::binary_heap_pop_if),
-        }
-    }
-
-    fn msrv_compatible(&self, cx: &LateContext<'_>, kind: ManualPopIfKind) -> bool {
-        match kind {
-            ManualPopIfKind::Vec => self.msrv.meets(cx, msrvs::VEC_POP_IF),
-            ManualPopIfKind::VecDequeBack => self.msrv.meets(cx, msrvs::VEC_DEQUE_POP_BACK_IF),
-            ManualPopIfKind::VecDequeFront => self.msrv.meets(cx, msrvs::VEC_DEQUE_POP_FRONT_IF),
-            ManualPopIfKind::BinaryHeap => self.binary_heap_pop_if_feature_enabled,
-        }
+) -> bool {
+    match kind {
+        ManualPopIfKind::Vec => msrv.meets(cx, msrvs::VEC_POP_IF),
+        ManualPopIfKind::VecDequeBack => msrv.meets(cx, msrvs::VEC_DEQUE_POP_BACK_IF),
+        ManualPopIfKind::VecDequeFront => msrv.meets(cx, msrvs::VEC_DEQUE_POP_FRONT_IF),
+        ManualPopIfKind::BinaryHeap => binary_heap_pop_if_feature_enabled,
     }
 }
 
@@ -459,33 +445,36 @@ fn check_pop_unwrap<'tcx>(
     })
 }
 
-impl<'tcx> LateLintPass<'tcx> for ManualPopIf {
-    fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'_>) {
-        let ExprKind::If(cond, then_block, None) = expr.kind else {
-            return;
-        };
+pub(crate) fn check<'tcx>(
+    cx: &LateContext<'tcx>,
+    expr: &'tcx Expr<'tcx>,
+    msrv: Msrv,
+    binary_heap_pop_if_feature_enabled: bool,
+) {
+    let ExprKind::If(cond, then_block, None) = expr.kind else {
+        return;
+    };
 
-        let in_else_clause = is_else_clause(cx.tcx, expr);
+    let in_else_clause = is_else_clause(cx.tcx, expr);
 
-        for kind in [
-            ManualPopIfKind::Vec,
-            ManualPopIfKind::VecDequeBack,
-            ManualPopIfKind::VecDequeFront,
-            ManualPopIfKind::BinaryHeap,
-        ] {
-            if let Some(mut pattern) = check_is_some_and_pattern(cx, cond, then_block, expr.span, kind)
-                .or_else(|| check_if_let_pattern(cx, cond, then_block, expr.span, kind))
-                .or_else(|| check_let_chain_pattern(cx, cond, then_block, expr.span, kind))
-                .or_else(|| check_map_unwrap_or_pattern(cx, cond, then_block, expr.span, kind))
-                && self.msrv_compatible(cx, kind)
-            {
-                if in_else_clause {
-                    pattern.suggestable = false;
-                }
-
-                pattern.emit_lint(cx);
-                return;
+    for kind in [
+        ManualPopIfKind::Vec,
+        ManualPopIfKind::VecDequeBack,
+        ManualPopIfKind::VecDequeFront,
+        ManualPopIfKind::BinaryHeap,
+    ] {
+        if let Some(mut pattern) = check_is_some_and_pattern(cx, cond, then_block, expr.span, kind)
+            .or_else(|| check_if_let_pattern(cx, cond, then_block, expr.span, kind))
+            .or_else(|| check_let_chain_pattern(cx, cond, then_block, expr.span, kind))
+            .or_else(|| check_map_unwrap_or_pattern(cx, cond, then_block, expr.span, kind))
+            && msrv_compatible(cx, kind, msrv, binary_heap_pop_if_feature_enabled)
+        {
+            if in_else_clause {
+                pattern.suggestable = false;
             }
+
+            pattern.emit_lint(cx);
+            return;
         }
     }
 }

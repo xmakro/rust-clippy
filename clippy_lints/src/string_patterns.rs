@@ -1,6 +1,5 @@
 use std::ops::ControlFlow;
 
-use clippy_config::Conf;
 use clippy_utils::diagnostics::{span_lint_and_sugg, span_lint_and_then};
 use clippy_utils::eager_or_lazy::switch_to_eager_eval;
 use clippy_utils::macros::matching_root_macro_call;
@@ -13,9 +12,8 @@ use itertools::Itertools;
 use rustc_ast::{BinOpKind, LitKind};
 use rustc_errors::Applicability;
 use rustc_hir::{Expr, ExprKind, PatExprKind, PatKind};
-use rustc_lint::{LateContext, LateLintPass};
+use rustc_lint::LateContext;
 use rustc_middle::ty;
-use rustc_session::impl_lint_pass;
 use rustc_span::{Span, Symbol};
 
 declare_clippy_lint! {
@@ -70,21 +68,6 @@ declare_clippy_lint! {
     pub SINGLE_CHAR_PATTERN,
     pedantic,
     "using a single-character str where a char could be used, e.g., `_.split(\"x\")`"
-}
-
-impl_lint_pass!(StringPatterns => [
-    MANUAL_PATTERN_CHAR_COMPARISON,
-    SINGLE_CHAR_PATTERN,
-]);
-
-pub struct StringPatterns {
-    msrv: Msrv,
-}
-
-impl StringPatterns {
-    pub fn new(conf: &'static Conf) -> Self {
-        Self { msrv: conf.msrv }
-    }
 }
 
 const PATTERN_METHODS: [(Symbol, usize); 22] = [
@@ -226,21 +209,19 @@ fn check_manual_pattern_char_comparison(cx: &LateContext<'_>, method_arg: &Expr<
     }
 }
 
-impl<'tcx> LateLintPass<'tcx> for StringPatterns {
-    fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'_>) {
-        if !expr.span.from_expansion()
-            && let ExprKind::MethodCall(method, receiver, args, _) = expr.kind
-            && let method_name = method.ident.name
-            && let Some(&(_, pos)) = PATTERN_METHODS
-                .iter()
-                .find(|(array_method_name, _)| *array_method_name == method_name)
-            && let Some(arg) = args.get(pos)
-            && let ty::Ref(_, ty, _) = cx.typeck_results().expr_ty_adjusted(receiver).kind()
-            && ty.is_str()
-        {
-            check_single_char_pattern_lint(cx, arg);
+pub(crate) fn check<'tcx>(cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>, msrv: Msrv) {
+    if !expr.span.from_expansion()
+        && let ExprKind::MethodCall(method, receiver, args, _) = expr.kind
+        && let method_name = method.ident.name
+        && let Some(&(_, pos)) = PATTERN_METHODS
+            .iter()
+            .find(|(array_method_name, _)| *array_method_name == method_name)
+        && let Some(arg) = args.get(pos)
+        && let ty::Ref(_, ty, _) = cx.typeck_results().expr_ty_adjusted(receiver).kind()
+        && ty.is_str()
+    {
+        check_single_char_pattern_lint(cx, arg);
 
-            check_manual_pattern_char_comparison(cx, arg, self.msrv);
-        }
+        check_manual_pattern_char_comparison(cx, arg, msrv);
     }
 }

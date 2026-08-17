@@ -1,6 +1,7 @@
 use clippy_config::Conf;
+use clippy_utils::msrvs::Msrv;
 use clippy_utils::ty::InteriorMut;
-use clippy_utils::{if_sequence, is_else_clause, is_lint_allowed};
+use clippy_utils::{if_sequence, is_else_clause, is_lint_allowed, sym};
 use rustc_hir::{Expr, ExprKind};
 use rustc_lint::{LateContext, LateLintPass};
 use rustc_middle::ty::TyCtxt;
@@ -152,22 +153,41 @@ impl_lint_pass!(CopyAndPaste<'_> => [
     IFS_SAME_COND,
     IF_SAME_THEN_ELSE,
     SAME_FUNCTIONS_IN_IF_CONDITION,
+    crate::collapsible_if::COLLAPSIBLE_ELSE_IF,
+    crate::collapsible_if::COLLAPSIBLE_IF,
+    crate::if_not_else::IF_NOT_ELSE,
+    crate::manual_take::MANUAL_TAKE,
+    crate::manual_checked_ops::MANUAL_CHECKED_OPS,
+    crate::manual_pop_if::MANUAL_POP_IF,
 ]);
 
 pub struct CopyAndPaste<'tcx> {
     interior_mut: InteriorMut<'tcx>,
+    msrv: Msrv,
+    lint_commented_code: bool,
+    binary_heap_pop_if_feature_enabled: bool,
 }
 
 impl<'tcx> CopyAndPaste<'tcx> {
     pub fn new(tcx: TyCtxt<'tcx>, conf: &'static Conf) -> Self {
         Self {
             interior_mut: InteriorMut::new(tcx, &conf.ignore_interior_mutability),
+            msrv: conf.msrv,
+            lint_commented_code: conf.lint_commented_code,
+            binary_heap_pop_if_feature_enabled: tcx.features().enabled(sym::binary_heap_pop_if),
         }
     }
 }
 
 impl<'tcx> LateLintPass<'tcx> for CopyAndPaste<'tcx> {
     fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'_>) {
+        if let ExprKind::If(..) = expr.kind {
+            crate::collapsible_if::check(cx, expr, self.msrv, self.lint_commented_code);
+            crate::if_not_else::check(cx, expr);
+            crate::manual_take::check(cx, expr, self.msrv);
+            crate::manual_checked_ops::check(cx, expr);
+            crate::manual_pop_if::check(cx, expr, self.msrv, self.binary_heap_pop_if_feature_enabled);
+        }
         if !expr.span.from_expansion() && matches!(expr.kind, ExprKind::If(..)) && !is_else_clause(cx.tcx, expr) {
             let (conds, blocks) = if_sequence(expr);
             ifs_same_cond::check(cx, &conds, &mut self.interior_mut);

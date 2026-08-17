@@ -1,12 +1,10 @@
-use clippy_config::Conf;
 use clippy_utils::diagnostics::span_lint_and_sugg;
 use clippy_utils::source::snippet;
 use clippy_utils::ty::implements_trait;
 use rustc_abi::Size;
 use rustc_errors::Applicability;
 use rustc_hir::{Expr, ExprKind, LangItem, MatchSource};
-use rustc_lint::{LateContext, LateLintPass};
-use rustc_session::impl_lint_pass;
+use rustc_lint::LateContext;
 
 declare_clippy_lint! {
     /// ### What it does
@@ -40,45 +38,29 @@ declare_clippy_lint! {
     "large future may lead to unexpected stack overflows"
 }
 
-impl_lint_pass!(LargeFuture => [LARGE_FUTURES]);
-
-pub struct LargeFuture {
-    future_size_threshold: u64,
-}
-
-impl LargeFuture {
-    pub fn new(conf: &'static Conf) -> Self {
-        Self {
-            future_size_threshold: conf.future_size_threshold,
-        }
-    }
-}
-
-impl<'tcx> LateLintPass<'tcx> for LargeFuture {
-    fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>) {
-        if let ExprKind::Match(scrutinee, _, MatchSource::AwaitDesugar) = expr.kind
-            && let ExprKind::Call(func, [arg]) = scrutinee.kind
-            && let ExprKind::Path(qpath) = func.kind
-            && cx.tcx.qpath_is_lang_item(qpath, LangItem::IntoFutureIntoFuture)
-            && !expr.span.from_expansion()
-            && let ty = cx.typeck_results().expr_ty(arg)
-            && let Some(future_trait_def_id) = cx.tcx.lang_items().future_trait()
-            && implements_trait(cx, ty, future_trait_def_id, &[])
-            && let Ok(layout) = cx
-                .tcx
-                .layout_of(cx.typing_env().with_codegen_normalized(cx.tcx).as_query_input(ty))
-            && let size = layout.layout.size()
-            && size >= Size::from_bytes(self.future_size_threshold)
-        {
-            span_lint_and_sugg(
-                cx,
-                LARGE_FUTURES,
-                arg.span,
-                format!("large future with a size of {} bytes", size.bytes()),
-                "consider `Box::pin` on it",
-                format!("Box::pin({})", snippet(cx, arg.span, "..")),
-                Applicability::Unspecified,
-            );
-        }
+pub(crate) fn check<'tcx>(cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>, future_size_threshold: u64) {
+    if let ExprKind::Match(scrutinee, _, MatchSource::AwaitDesugar) = expr.kind
+        && let ExprKind::Call(func, [arg]) = scrutinee.kind
+        && let ExprKind::Path(qpath) = func.kind
+        && cx.tcx.qpath_is_lang_item(qpath, LangItem::IntoFutureIntoFuture)
+        && !expr.span.from_expansion()
+        && let ty = cx.typeck_results().expr_ty(arg)
+        && let Some(future_trait_def_id) = cx.tcx.lang_items().future_trait()
+        && implements_trait(cx, ty, future_trait_def_id, &[])
+        && let Ok(layout) = cx
+            .tcx
+            .layout_of(cx.typing_env().with_codegen_normalized(cx.tcx).as_query_input(ty))
+        && let size = layout.layout.size()
+        && size >= Size::from_bytes(future_size_threshold)
+    {
+        span_lint_and_sugg(
+            cx,
+            LARGE_FUTURES,
+            arg.span,
+            format!("large future with a size of {} bytes", size.bytes()),
+            "consider `Box::pin` on it",
+            format!("Box::pin({})", snippet(cx, arg.span, "..")),
+            Applicability::Unspecified,
+        );
     }
 }

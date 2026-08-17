@@ -3,8 +3,7 @@ use clippy_utils::res::{MaybeDef, MaybeResPath};
 use clippy_utils::source::snippet_with_context;
 use rustc_errors::Applicability;
 use rustc_hir::{BorrowKind, Expr, ExprKind, Mutability, UnOp};
-use rustc_lint::{LateContext, LateLintPass};
-use rustc_session::declare_lint_pass;
+use rustc_lint::LateContext;
 use rustc_span::{Span, SyntaxContext, sym};
 
 declare_clippy_lint! {
@@ -37,37 +36,33 @@ declare_clippy_lint! {
     "call to `mem::swap` using pointer derived references"
 }
 
-declare_lint_pass!(SwapPtrToRef => [SWAP_PTR_TO_REF]);
-
-impl LateLintPass<'_> for SwapPtrToRef {
-    fn check_expr(&mut self, cx: &LateContext<'_>, e: &Expr<'_>) {
-        if let ExprKind::Call(fn_expr, [arg1, arg2]) = e.kind
-            && fn_expr.basic_res().is_diag_item(cx, sym::mem_swap)
-            && let ctxt = e.span.ctxt()
-            && let (from_ptr1, arg1_span) = is_ptr_to_ref(cx, arg1, ctxt)
-            && let (from_ptr2, arg2_span) = is_ptr_to_ref(cx, arg2, ctxt)
-            && (from_ptr1 || from_ptr2)
-        {
-            span_lint_and_then(
-                cx,
-                SWAP_PTR_TO_REF,
-                e.span,
-                "call to `core::mem::swap` with a parameter derived from a raw pointer",
-                |diag| {
-                    if !((from_ptr1 && arg1_span.is_none()) || (from_ptr2 && arg2_span.is_none())) {
-                        let mut app = Applicability::MachineApplicable;
-                        let snip1 = snippet_with_context(cx, arg1_span.unwrap_or(arg1.span), ctxt, "..", &mut app).0;
-                        let snip2 = snippet_with_context(cx, arg2_span.unwrap_or(arg2.span), ctxt, "..", &mut app).0;
-                        diag.span_suggestion(
-                            e.span,
-                            "use ptr::swap",
-                            format!("core::ptr::swap({snip1}, {snip2})"),
-                            app,
-                        );
-                    }
-                },
-            );
-        }
+pub(crate) fn check<'tcx>(cx: &LateContext<'tcx>, e: &'tcx Expr<'tcx>) {
+    if let ExprKind::Call(fn_expr, [arg1, arg2]) = e.kind
+        && fn_expr.basic_res().is_diag_item(cx, sym::mem_swap)
+        && let ctxt = e.span.ctxt()
+        && let (from_ptr1, arg1_span) = is_ptr_to_ref(cx, arg1, ctxt)
+        && let (from_ptr2, arg2_span) = is_ptr_to_ref(cx, arg2, ctxt)
+        && (from_ptr1 || from_ptr2)
+    {
+        span_lint_and_then(
+            cx,
+            SWAP_PTR_TO_REF,
+            e.span,
+            "call to `core::mem::swap` with a parameter derived from a raw pointer",
+            |diag| {
+                if !((from_ptr1 && arg1_span.is_none()) || (from_ptr2 && arg2_span.is_none())) {
+                    let mut app = Applicability::MachineApplicable;
+                    let snip1 = snippet_with_context(cx, arg1_span.unwrap_or(arg1.span), ctxt, "..", &mut app).0;
+                    let snip2 = snippet_with_context(cx, arg2_span.unwrap_or(arg2.span), ctxt, "..", &mut app).0;
+                    diag.span_suggestion(
+                        e.span,
+                        "use ptr::swap",
+                        format!("core::ptr::swap({snip1}, {snip2})"),
+                        app,
+                    );
+                }
+            },
+        );
     }
 }
 

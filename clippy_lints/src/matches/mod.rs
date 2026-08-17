@@ -1035,11 +1035,15 @@ impl_lint_pass!(Matches => [
     TRY_ERR,
     WILDCARD_ENUM_MATCH_ARM,
     WILDCARD_IN_OR_PATTERNS,
+    crate::question_mark_used::QUESTION_MARK_USED,
+    crate::large_futures::LARGE_FUTURES,
+    crate::equatable_if_let::EQUATABLE_IF_LET,
 ]);
 
 pub struct Matches {
     msrv: Msrv,
     infallible_destructuring_match_linted: bool,
+    future_size_threshold: u64,
 }
 
 impl Matches {
@@ -1047,6 +1051,7 @@ impl Matches {
         Self {
             msrv: conf.msrv,
             infallible_destructuring_match_linted: false,
+            future_size_threshold: conf.future_size_threshold,
         }
     }
 }
@@ -1054,6 +1059,16 @@ impl Matches {
 impl<'tcx> LateLintPass<'tcx> for Matches {
     #[expect(clippy::too_many_lines)]
     fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'_>) {
+        match expr.kind {
+            ExprKind::Match(..) => {
+                crate::question_mark_used::check(cx, expr);
+                crate::large_futures::check(cx, expr, self.future_size_threshold);
+            },
+            ExprKind::Let(..) => {
+                crate::equatable_if_let::check(cx, expr);
+            },
+            _ => {},
+        }
         if is_direct_expn_of(expr.span, sym::matches).is_none() && expr.span.in_external_macro(cx.sess().source_map()) {
             return;
         }

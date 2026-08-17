@@ -875,6 +875,7 @@ impl_lint_pass!(Casts => [
     REF_AS_PTR,
     UNNECESSARY_CAST,
     ZERO_PTR,
+    crate::as_conversions::AS_CONVERSIONS,
 ]);
 
 pub struct Casts {
@@ -889,6 +890,9 @@ impl Casts {
 
 impl<'tcx> LateLintPass<'tcx> for Casts {
     fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'_>) {
+        if let ExprKind::Cast(..) = expr.kind {
+            crate::as_conversions::check(cx, expr);
+        }
         if expr.span.in_external_macro(cx.sess().source_map()) {
             return;
         }

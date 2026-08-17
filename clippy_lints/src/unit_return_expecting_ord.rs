@@ -1,10 +1,9 @@
 use clippy_utils::diagnostics::span_lint_and_then;
 use rustc_hir::def_id::DefId;
 use rustc_hir::{Closure, Expr, ExprKind, StmtKind};
-use rustc_lint::{LateContext, LateLintPass};
+use rustc_lint::LateContext;
 use rustc_middle::ty;
 use rustc_middle::ty::{ClauseKind, GenericPredicates, ProjectionPredicate, TraitPredicate};
-use rustc_session::declare_lint_pass;
 use rustc_span::{BytePos, Span, Symbol, sym};
 
 declare_clippy_lint! {
@@ -33,8 +32,6 @@ declare_clippy_lint! {
     correctness,
     "fn arguments of type Fn(...) -> Ord returning the unit type ()."
 }
-
-declare_lint_pass!(UnitReturnExpectingOrd => [UNIT_RETURN_EXPECTING_ORD]);
 
 // For each
 fn get_trait_predicates_for_trait_ids<'tcx>(
@@ -160,42 +157,40 @@ fn check_arg<'tcx>(cx: &LateContext<'tcx>, arg: &'tcx Expr<'tcx>) -> Option<(Spa
     }
 }
 
-impl<'tcx> LateLintPass<'tcx> for UnitReturnExpectingOrd {
-    fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>) {
-        if let ExprKind::MethodCall(_, receiver, args, _) = expr.kind
-            && args.iter().any(|arg| {
-                matches!(
-                    arg.peel_blocks().peel_borrows().peel_drop_temps().kind,
-                    ExprKind::Path(_) | ExprKind::Closure(_)
-                )
-            })
-            && let Some(fn_mut_trait) = cx.tcx.lang_items().fn_mut_trait()
-        {
-            let ord_trait = cx.tcx.get_diagnostic_item(sym::Ord);
-            let partial_ord_trait = cx.tcx.lang_items().partial_ord_trait();
-            if (ord_trait, partial_ord_trait) == (None, None) {
-                return;
-            }
+pub(crate) fn check<'tcx>(cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>) {
+    if let ExprKind::MethodCall(_, receiver, args, _) = expr.kind
+        && args.iter().any(|arg| {
+            matches!(
+                arg.peel_blocks().peel_borrows().peel_drop_temps().kind,
+                ExprKind::Path(_) | ExprKind::Closure(_)
+            )
+        })
+        && let Some(fn_mut_trait) = cx.tcx.lang_items().fn_mut_trait()
+    {
+        let ord_trait = cx.tcx.get_diagnostic_item(sym::Ord);
+        let partial_ord_trait = cx.tcx.lang_items().partial_ord_trait();
+        if (ord_trait, partial_ord_trait) == (None, None) {
+            return;
+        }
 
-            let args = std::iter::once(receiver).chain(args.iter()).collect::<Vec<_>>();
-            let arg_indices = get_args_to_check(cx, expr, args.len(), fn_mut_trait, ord_trait, partial_ord_trait);
-            for (i, trait_name) in arg_indices {
-                if let Some((span, last_semi)) = check_arg(cx, args[i]) {
-                    span_lint_and_then(
-                        cx,
-                        UNIT_RETURN_EXPECTING_ORD,
-                        span,
-                        format!(
-                            "this closure returns \
-                                   the unit type which also implements {trait_name}"
-                        ),
-                        |diag| {
-                            if let Some(last_semi) = last_semi {
-                                diag.span_help(last_semi, "probably caused by this trailing semicolon");
-                            }
-                        },
-                    );
-                }
+        let args = std::iter::once(receiver).chain(args.iter()).collect::<Vec<_>>();
+        let arg_indices = get_args_to_check(cx, expr, args.len(), fn_mut_trait, ord_trait, partial_ord_trait);
+        for (i, trait_name) in arg_indices {
+            if let Some((span, last_semi)) = check_arg(cx, args[i]) {
+                span_lint_and_then(
+                    cx,
+                    UNIT_RETURN_EXPECTING_ORD,
+                    span,
+                    format!(
+                        "this closure returns \
+                               the unit type which also implements {trait_name}"
+                    ),
+                    |diag| {
+                        if let Some(last_semi) = last_semi {
+                            diag.span_help(last_semi, "probably caused by this trailing semicolon");
+                        }
+                    },
+                );
             }
         }
     }

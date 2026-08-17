@@ -5081,6 +5081,37 @@ impl_lint_pass!(Methods => [
     WAKER_CLONE_WAKE,
     WRONG_SELF_CONVENTION,
     ZST_OFFSET,
+    crate::mem_replace::MEM_REPLACE_OPTION_WITH_NONE,
+    crate::mem_replace::MEM_REPLACE_OPTION_WITH_SOME,
+    crate::mem_replace::MEM_REPLACE_WITH_DEFAULT,
+    crate::mem_replace::MEM_REPLACE_WITH_UNINIT,
+    crate::drop_forget_ref::DROP_NON_DROP,
+    crate::drop_forget_ref::FORGET_NON_DROP,
+    crate::drop_forget_ref::MEM_FORGET,
+    crate::create_dir::CREATE_DIR,
+    crate::exit::EXIT,
+    crate::from_str_radix_10::FROM_STR_RADIX_10,
+    crate::strlen_on_c_strings::STRLEN_ON_C_STRINGS,
+    crate::swap_ptr_to_ref::SWAP_PTR_TO_REF,
+    crate::default_instead_of_iter_empty::DEFAULT_INSTEAD_OF_ITER_EMPTY,
+    crate::box_default::BOX_DEFAULT,
+    crate::from_raw_with_void_ptr::FROM_RAW_WITH_VOID_PTR,
+    crate::size_of_ref::SIZE_OF_REF,
+    crate::same_length_and_capacity::SAME_LENGTH_AND_CAPACITY,
+    crate::duration_suboptimal_units::DURATION_SUBOPTIMAL_UNITS,
+    crate::with_capacity_zero::WITH_CAPACITY_ZERO,
+    crate::non_octal_unix_permissions::NON_OCTAL_UNIX_PERMISSIONS,
+    crate::zombie_processes::ZOMBIE_PROCESSES,
+    crate::volatile_composites::VOLATILE_COMPOSITES,
+    crate::unnecessary_mut_passed::UNNECESSARY_MUT_PASSED,
+    crate::unit_return_expecting_ord::UNIT_RETURN_EXPECTING_ORD,
+    crate::explicit_write::EXPLICIT_WRITE,
+    crate::to_digit_is_some::TO_DIGIT_IS_SOME,
+    crate::permissions_set_readonly_false::PERMISSIONS_SET_READONLY_FALSE,
+    crate::unnecessary_map_on_constructor::UNNECESSARY_MAP_ON_CONSTRUCTOR,
+    crate::ineffective_open_options::INEFFECTIVE_OPEN_OPTIONS,
+    crate::string_patterns::MANUAL_PATTERN_CHAR_COMPARISON,
+    crate::string_patterns::SINGLE_CHAR_PATTERN,
 ]);
 
 #[expect(clippy::struct_excessive_bools)]
@@ -5148,6 +5179,45 @@ impl<'tcx> LateLintPass<'tcx> for Methods {
     }
 
     fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'_>) {
+        // Checks merged from standalone passes. These run before the `from_expansion` guard
+        // below so they still see macro-expanded code, exactly as they did as separate passes.
+        match expr.kind {
+            ExprKind::Call(..) => {
+                crate::mem_replace::check(cx, expr, self.msrv);
+                crate::drop_forget_ref::check(cx, expr);
+                crate::create_dir::check(cx, expr);
+                crate::exit::check(cx, expr);
+                crate::from_str_radix_10::check(cx, expr);
+                crate::strlen_on_c_strings::check(cx, expr, self.msrv);
+                crate::swap_ptr_to_ref::check(cx, expr);
+                crate::default_instead_of_iter_empty::check(cx, expr);
+                crate::box_default::check(cx, expr);
+                crate::from_raw_with_void_ptr::check(cx, expr);
+                crate::size_of_ref::check(cx, expr);
+                crate::same_length_and_capacity::check(cx, expr);
+                crate::duration_suboptimal_units::check(cx, expr, self.msrv);
+                crate::with_capacity_zero::check(cx, expr);
+                crate::non_octal_unix_permissions::check(cx, expr);
+                crate::zombie_processes::check(cx, expr);
+                crate::volatile_composites::check(cx, expr);
+                crate::unnecessary_mut_passed::check(cx, expr);
+            },
+            ExprKind::MethodCall(..) => {
+                crate::non_octal_unix_permissions::check(cx, expr);
+                crate::zombie_processes::check(cx, expr);
+                crate::volatile_composites::check(cx, expr);
+                crate::unnecessary_mut_passed::check(cx, expr);
+                crate::unit_return_expecting_ord::check(cx, expr);
+                crate::explicit_write::check(cx, expr, &self.format_args);
+                crate::to_digit_is_some::check(cx, expr, self.msrv);
+                crate::permissions_set_readonly_false::check(cx, expr);
+                crate::unnecessary_map_on_constructor::check(cx, expr);
+                crate::ineffective_open_options::check(cx, expr);
+                crate::string_patterns::check(cx, expr, self.msrv);
+            },
+            _ => {},
+        }
+
         if expr.span.from_expansion() {
             return;
         }

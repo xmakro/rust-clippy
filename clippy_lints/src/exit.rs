@@ -1,8 +1,7 @@
 use clippy_utils::diagnostics::span_lint;
 use clippy_utils::sym;
 use rustc_hir::{Expr, ExprKind, Item, ItemKind, OwnerNode};
-use rustc_lint::{LateContext, LateLintPass};
-use rustc_session::declare_lint_pass;
+use rustc_lint::LateContext;
 
 declare_clippy_lint! {
     /// ### What it does
@@ -52,25 +51,21 @@ declare_clippy_lint! {
     "detects `std::process::exit` calls outside of `main`"
 }
 
-declare_lint_pass!(Exit => [EXIT]);
+pub(crate) fn check<'tcx>(cx: &LateContext<'tcx>, e: &'tcx Expr<'tcx>) {
+    if let ExprKind::Call(path_expr, [_]) = e.kind
+        && let ExprKind::Path(ref path) = path_expr.kind
+        && let Some(def_id) = cx.qpath_res(path, path_expr.hir_id).opt_def_id()
+        && cx.tcx.is_diagnostic_item(sym::process_exit, def_id)
+        && let parent = cx.tcx.hir_get_parent_item(e.hir_id)
+        && let OwnerNode::Item(Item{kind: ItemKind::Fn{ ident, .. }, ..}) = cx.tcx.hir_owner_node(parent)
+        // If the next item up is a function we check if it isn't named "main"
+        // and only then emit a linter warning
 
-impl<'tcx> LateLintPass<'tcx> for Exit {
-    fn check_expr(&mut self, cx: &LateContext<'tcx>, e: &'tcx Expr<'_>) {
-        if let ExprKind::Call(path_expr, [_]) = e.kind
-            && let ExprKind::Path(ref path) = path_expr.kind
-            && let Some(def_id) = cx.qpath_res(path, path_expr.hir_id).opt_def_id()
-            && cx.tcx.is_diagnostic_item(sym::process_exit, def_id)
-            && let parent = cx.tcx.hir_get_parent_item(e.hir_id)
-            && let OwnerNode::Item(Item{kind: ItemKind::Fn{ ident, .. }, ..}) = cx.tcx.hir_owner_node(parent)
-            // If the next item up is a function we check if it isn't named "main"
-            // and only then emit a linter warning
-
-            // if you instead check for the parent of the `exit()` call being the entrypoint function, as this worked before,
-            // in compilation contexts like --all-targets (which include --tests), you get false positives
-            // because in a test context, main is not the entrypoint function
-            && ident.name != sym::main
-        {
-            span_lint(cx, EXIT, e.span, "usage of `process::exit`");
-        }
+        // if you instead check for the parent of the `exit()` call being the entrypoint function, as this worked before,
+        // in compilation contexts like --all-targets (which include --tests), you get false positives
+        // because in a test context, main is not the entrypoint function
+        && ident.name != sym::main
+    {
+        span_lint(cx, EXIT, e.span, "usage of `process::exit`");
     }
 }

@@ -2,9 +2,8 @@ use clippy_utils::diagnostics::span_lint_and_then;
 use clippy_utils::source::SpanExt;
 use rustc_errors::Applicability;
 use rustc_hir::{BorrowKind, Expr, ExprKind, Mutability};
-use rustc_lint::{LateContext, LateLintPass};
+use rustc_lint::LateContext;
 use rustc_middle::ty::{self, Ty};
-use rustc_session::declare_lint_pass;
 use std::iter;
 
 declare_clippy_lint! {
@@ -35,42 +34,38 @@ declare_clippy_lint! {
     "an argument passed as a mutable reference although the callee only demands an immutable reference"
 }
 
-declare_lint_pass!(UnnecessaryMutPassed => [UNNECESSARY_MUT_PASSED]);
+pub(crate) fn check<'tcx>(cx: &LateContext<'tcx>, e: &'tcx Expr<'tcx>) {
+    if e.span.from_expansion() {
+        // Issue #11268
+        return;
+    }
 
-impl<'tcx> LateLintPass<'tcx> for UnnecessaryMutPassed {
-    fn check_expr(&mut self, cx: &LateContext<'tcx>, e: &'tcx Expr<'_>) {
-        if e.span.from_expansion() {
-            // Issue #11268
-            return;
-        }
-
-        match e.kind {
-            ExprKind::Call(fn_expr, arguments) => {
-                if let ExprKind::Path(ref path) = fn_expr.kind {
-                    check_arguments(
-                        cx,
-                        &mut arguments.iter(),
-                        cx.typeck_results().expr_ty(fn_expr),
-                        &rustc_hir_pretty::qpath_to_string(&cx.tcx, path),
-                        "function",
-                    );
-                }
-            },
-            ExprKind::MethodCall(path, receiver, arguments, _)
-                if let Some(def_id) = cx.typeck_results().type_dependent_def_id(e.hir_id) =>
-            {
-                let args = cx.typeck_results().node_args(e.hir_id);
-                let method_type = cx.tcx.type_of(def_id).instantiate(cx.tcx, args).skip_norm_wip();
+    match e.kind {
+        ExprKind::Call(fn_expr, arguments) => {
+            if let ExprKind::Path(ref path) = fn_expr.kind {
                 check_arguments(
                     cx,
-                    &mut iter::once(receiver).chain(arguments.iter()),
-                    method_type,
-                    path.ident.as_str(),
-                    "method",
+                    &mut arguments.iter(),
+                    cx.typeck_results().expr_ty(fn_expr),
+                    &rustc_hir_pretty::qpath_to_string(&cx.tcx, path),
+                    "function",
                 );
-            },
-            _ => (),
-        }
+            }
+        },
+        ExprKind::MethodCall(path, receiver, arguments, _)
+            if let Some(def_id) = cx.typeck_results().type_dependent_def_id(e.hir_id) =>
+        {
+            let args = cx.typeck_results().node_args(e.hir_id);
+            let method_type = cx.tcx.type_of(def_id).instantiate(cx.tcx, args).skip_norm_wip();
+            check_arguments(
+                cx,
+                &mut iter::once(receiver).chain(arguments.iter()),
+                method_type,
+                path.ident.as_str(),
+                "method",
+            );
+        },
+        _ => (),
     }
 }
 

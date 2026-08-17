@@ -4,8 +4,7 @@ use clippy_utils::{is_expn_of, peel_blocks, sym};
 use rustc_ast::ast::LitKind;
 use rustc_errors::Applicability;
 use rustc_hir::{BinOpKind, Expr, ExprKind};
-use rustc_lint::{LateContext, LateLintPass};
-use rustc_session::declare_lint_pass;
+use rustc_lint::LateContext;
 use rustc_span::{Span, Spanned};
 
 declare_clippy_lint! {
@@ -33,71 +32,67 @@ declare_clippy_lint! {
     "comparing a variable to a boolean, e.g., `if x == true` or `if x != true`"
 }
 
-declare_lint_pass!(BoolComparison => [BOOL_COMPARISON]);
+pub(crate) fn check<'tcx>(cx: &LateContext<'tcx>, e: &'tcx Expr<'_>) {
+    if e.span.from_expansion() {
+        return;
+    }
 
-impl<'tcx> LateLintPass<'tcx> for BoolComparison {
-    fn check_expr(&mut self, cx: &LateContext<'tcx>, e: &'tcx Expr<'_>) {
-        if e.span.from_expansion() {
-            return;
-        }
-
-        if let ExprKind::Binary(Spanned { node, .. }, left_side, right_side) = e.kind
-            && is_expn_of(left_side.span, sym::cfg).is_none()
-            && is_expn_of(right_side.span, sym::cfg).is_none()
-            && cx.typeck_results().expr_ty(left_side).is_bool()
-            && cx.typeck_results().expr_ty(right_side).is_bool()
-        {
-            let ignore_case = None::<(fn(_) -> _, &str)>;
-            let ignore_no_literal = None::<(fn(_, _) -> _, &str)>;
-            match node {
-                BinOpKind::Eq => {
-                    let true_case = Some((|h| h, "equality checks against true are unnecessary"));
-                    let false_case = Some((
-                        |h: Sugg<'tcx>| !h,
-                        "equality checks against false can be replaced by a negation",
-                    ));
-                    check_comparison(cx, e, true_case, false_case, true_case, false_case, ignore_no_literal);
-                },
-                BinOpKind::Ne => {
-                    let true_case = Some((
-                        |h: Sugg<'tcx>| !h,
-                        "inequality checks against true can be replaced by a negation",
-                    ));
-                    let false_case = Some((|h| h, "inequality checks against false are unnecessary"));
-                    check_comparison(cx, e, true_case, false_case, true_case, false_case, ignore_no_literal);
-                },
-                BinOpKind::Lt => check_comparison(
-                    cx,
-                    e,
-                    ignore_case,
-                    Some((|h| h, "greater than checks against false are unnecessary")),
-                    Some((
-                        |h: Sugg<'tcx>| !h,
-                        "less than comparison against true can be replaced by a negation",
-                    )),
-                    ignore_case,
-                    Some((
-                        |l: Sugg<'tcx>, r: Sugg<'tcx>| (!l).bit_and(&r),
-                        "order comparisons between booleans can be simplified",
-                    )),
-                ),
-                BinOpKind::Gt => check_comparison(
-                    cx,
-                    e,
-                    Some((
-                        |h: Sugg<'tcx>| !h,
-                        "less than comparison against true can be replaced by a negation",
-                    )),
-                    ignore_case,
-                    ignore_case,
-                    Some((|h| h, "greater than checks against false are unnecessary")),
-                    Some((
-                        |l: Sugg<'tcx>, r: Sugg<'tcx>| l.bit_and(&(!r)),
-                        "order comparisons between booleans can be simplified",
-                    )),
-                ),
-                _ => (),
-            }
+    if let ExprKind::Binary(Spanned { node, .. }, left_side, right_side) = e.kind
+        && is_expn_of(left_side.span, sym::cfg).is_none()
+        && is_expn_of(right_side.span, sym::cfg).is_none()
+        && cx.typeck_results().expr_ty(left_side).is_bool()
+        && cx.typeck_results().expr_ty(right_side).is_bool()
+    {
+        let ignore_case = None::<(fn(_) -> _, &str)>;
+        let ignore_no_literal = None::<(fn(_, _) -> _, &str)>;
+        match node {
+            BinOpKind::Eq => {
+                let true_case = Some((|h| h, "equality checks against true are unnecessary"));
+                let false_case = Some((
+                    |h: Sugg<'tcx>| !h,
+                    "equality checks against false can be replaced by a negation",
+                ));
+                check_comparison(cx, e, true_case, false_case, true_case, false_case, ignore_no_literal);
+            },
+            BinOpKind::Ne => {
+                let true_case = Some((
+                    |h: Sugg<'tcx>| !h,
+                    "inequality checks against true can be replaced by a negation",
+                ));
+                let false_case = Some((|h| h, "inequality checks against false are unnecessary"));
+                check_comparison(cx, e, true_case, false_case, true_case, false_case, ignore_no_literal);
+            },
+            BinOpKind::Lt => check_comparison(
+                cx,
+                e,
+                ignore_case,
+                Some((|h| h, "greater than checks against false are unnecessary")),
+                Some((
+                    |h: Sugg<'tcx>| !h,
+                    "less than comparison against true can be replaced by a negation",
+                )),
+                ignore_case,
+                Some((
+                    |l: Sugg<'tcx>, r: Sugg<'tcx>| (!l).bit_and(&r),
+                    "order comparisons between booleans can be simplified",
+                )),
+            ),
+            BinOpKind::Gt => check_comparison(
+                cx,
+                e,
+                Some((
+                    |h: Sugg<'tcx>| !h,
+                    "less than comparison against true can be replaced by a negation",
+                )),
+                ignore_case,
+                ignore_case,
+                Some((|h| h, "greater than checks against false are unnecessary")),
+                Some((
+                    |l: Sugg<'tcx>, r: Sugg<'tcx>| l.bit_and(&(!r)),
+                    "order comparisons between booleans can be simplified",
+                )),
+            ),
+            _ => (),
         }
     }
 }
