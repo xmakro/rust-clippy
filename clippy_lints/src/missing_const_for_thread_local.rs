@@ -60,11 +60,12 @@ fn is_thread_local_initializer(
     fn_kind: intravisit::FnKind<'_>,
     span: rustc_span::Span,
 ) -> Option<bool> {
+    // Do the cheap checks first, since `source_callee` walks the whole expansion chain.
+    if !matches!(fn_kind, intravisit::FnKind::ItemFn(..)) || !span.from_expansion() {
+        return Some(false);
+    }
     let macro_def_id = span.source_callee()?.macro_def_id?;
-    Some(
-        cx.tcx.is_diagnostic_item(sym::thread_local_macro, macro_def_id)
-            && matches!(fn_kind, intravisit::FnKind::ItemFn(..)),
-    )
+    Some(cx.tcx.is_diagnostic_item(sym::thread_local_macro, macro_def_id))
 }
 
 fn is_unreachable(cx: &LateContext<'_>, expr: &Expr<'_>) -> bool {
