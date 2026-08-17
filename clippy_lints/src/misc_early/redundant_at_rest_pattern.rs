@@ -1,4 +1,5 @@
 use clippy_utils::diagnostics::span_lint_and_sugg;
+use clippy_utils::macros::is_in_external_macro;
 use rustc_ast::{Pat, PatKind};
 use rustc_errors::Applicability;
 use rustc_lint::{EarlyContext, LintContext as _};
@@ -10,7 +11,7 @@ pub(super) fn check(cx: &EarlyContext<'_>, pat: &Pat) {
         && let [one] = &**slice
         && let PatKind::Ident(annotation, ident, Some(rest)) = &one.kind
         && let PatKind::Rest = rest.kind
-        && !pat.span.in_external_macro(cx.sess().source_map())
+        && !is_in_external_macro(cx.sess(), pat.span)
     {
         span_lint_and_sugg(
             cx,

@@ -1,5 +1,6 @@
 use clippy_utils::msrvs::{self, Msrv};
 use clippy_utils::res::MaybeDef as _;
+use clippy_utils::macros::is_in_external_macro;
 use rustc_errors::Diag;
 use rustc_hir as hir;
 use rustc_lint::{LateContext, LintContext as _};
@@ -21,7 +22,7 @@ fn result_err_ty<'tcx>(
     id: hir::def_id::LocalDefId,
     item_span: Span,
 ) -> Option<(&'tcx hir::Ty<'tcx>, Ty<'tcx>)> {
-    if !item_span.in_external_macro(cx.sess().source_map())
+    if !is_in_external_macro(cx.sess(), item_span)
         && let hir::FnRetTy::Return(hir_ty) = decl.output
     {
         let mut ty = cx

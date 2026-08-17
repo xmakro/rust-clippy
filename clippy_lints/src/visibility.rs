@@ -1,5 +1,6 @@
 use clippy_utils::diagnostics::span_lint_and_then;
 use clippy_utils::source::SpanExt as _;
+use clippy_utils::macros::is_in_external_macro;
 use rustc_ast::ast::{Item, VisibilityKind};
 use rustc_errors::Applicability;
 use rustc_lint::{EarlyContext, EarlyLintPass, LintContext as _};
@@ -86,7 +87,7 @@ declare_lint_pass!(Visibility => [
 impl EarlyLintPass for Visibility {
     fn check_item(&mut self, cx: &EarlyContext<'_>, item: &Item) {
         if let VisibilityKind::Restricted { path, shorthand, .. } = &item.vis.kind
-            && !item.span.in_external_macro(cx.sess().source_map())
+            && !is_in_external_macro(cx.sess(), item.span)
         {
             if **path == kw::SelfLower && !is_from_proc_macro(cx, item.vis.span) {
                 span_lint_and_then(

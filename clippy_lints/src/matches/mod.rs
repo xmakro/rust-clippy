@@ -30,6 +30,7 @@ use clippy_utils::source::SpanExt as _;
 use clippy_utils::{
     higher, is_direct_expn_of, is_in_const_context, is_lint_allowed, is_span_match, sym, tokenize_with_text,
 };
+use clippy_utils::macros::is_in_external_macro;
 use rustc_hir::{Arm, Expr, ExprKind, LetStmt, MatchSource, Pat, PatKind};
 use rustc_lexer::{TokenKind, is_whitespace};
 use rustc_lint::{LateContext, LateLintPass};
@@ -1063,7 +1064,7 @@ impl<'tcx> LateLintPass<'tcx> for Matches {
                 redundant_pattern_match::check_match(cx, expr, ex, arms);
                 redundant_pattern_match::check_matches_true(cx, expr, arm, ex);
             }
-            if expr.span.in_external_macro(cx.tcx.sess.source_map()) {
+            if is_in_external_macro(cx.tcx.sess, expr.span) {
                 return;
             }
 
@@ -1147,7 +1148,7 @@ impl<'tcx> LateLintPass<'tcx> for Matches {
                 match_ref_pats::check(cx, ex, arms.iter().map(|el| el.pat), expr);
             }
         } else if let Some(if_let) = higher::IfLet::hir(cx, expr) {
-            if expr.span.in_external_macro(cx.tcx.sess.source_map()) {
+            if is_in_external_macro(cx.tcx.sess, expr.span) {
                 return;
             }
             collapsible_match::check_if_let(
@@ -1211,7 +1212,7 @@ impl<'tcx> LateLintPass<'tcx> for Matches {
                 needless_match::check_if_let(cx, expr, &if_let);
             }
         } else {
-            if expr.span.in_external_macro(cx.tcx.sess.source_map()) {
+            if is_in_external_macro(cx.tcx.sess, expr.span) {
                 return;
             }
             if let Some(while_let) = higher::WhileLet::hir(expr) {

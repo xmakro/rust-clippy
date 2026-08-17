@@ -2,6 +2,7 @@ use clippy_utils::diagnostics::{span_lint, span_lint_and_sugg, span_lint_and_the
 use clippy_utils::res::{MaybeDef as _, MaybeQPath as _};
 use clippy_utils::source::{snippet, snippet_with_applicability, snippet_with_context};
 use clippy_utils::{SpanlessEq, get_expr_use_or_unification_node, get_parent_expr, is_lint_allowed, method_calls, sym};
+use clippy_utils::macros::{is_ctxt_in_external_macro, is_in_external_macro};
 use rustc_errors::Applicability;
 use rustc_hir::def::{DefKind, Res};
 use rustc_hir::def_id::DefId;
@@ -223,7 +224,7 @@ impl<'tcx> LateLintPass<'tcx> for StringAdd {
                     && cx.typeck_results().expr_ty(lhs).is_lang_item(cx, LangItem::String)
                     && let ctxt = e.span.ctxt()
                     && op.span.ctxt() == ctxt
-                    && !ctxt.in_external_macro(cx.tcx.sess.source_map()) =>
+                    && !is_ctxt_in_external_macro(cx.tcx.sess, ctxt) =>
             {
                 if !is_lint_allowed(cx, STRING_ADD_ASSIGN, e.hir_id)
                     && let Node::Expr(parent) = cx.tcx.parent_hir_node(e.hir_id)
@@ -248,7 +249,7 @@ impl<'tcx> LateLintPass<'tcx> for StringAdd {
                     && SpanlessEq::new(cx).eq_expr(ctxt, lhs, add_lhs)
                     && rhs.span.ctxt() == ctxt
                     && op.span.ctxt() == ctxt
-                    && !ctxt.in_external_macro(cx.tcx.sess.source_map()) =>
+                    && !is_ctxt_in_external_macro(cx.tcx.sess, ctxt) =>
             {
                 span_lint(
                     cx,
@@ -265,7 +266,7 @@ impl<'tcx> LateLintPass<'tcx> for StringAdd {
                         ty::Str => true,
                         _ => false,
                     }
-                    && !e.span.in_external_macro(cx.tcx.sess.source_map()) =>
+                    && !is_in_external_macro(cx.tcx.sess, e.span) =>
             {
                 span_lint(
                     cx,
@@ -320,7 +321,7 @@ impl<'tcx> LateLintPass<'tcx> for StringLitAsBytes {
             );
         }
 
-        if !e.span.in_external_macro(cx.sess().source_map())
+        if !is_in_external_macro(cx.sess(), e.span)
             && let ExprKind::MethodCall(path, receiver, ..) = &e.kind
             && path.ident.name == sym::as_bytes
             && let ExprKind::Lit(lit) = &receiver.kind

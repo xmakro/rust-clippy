@@ -2,6 +2,7 @@ use clippy_utils::diagnostics::span_lint_and_sugg;
 use clippy_utils::msrvs::{self, Msrv};
 use clippy_utils::source::snippet_with_context;
 use clippy_utils::{get_parent_expr, is_no_std_crate};
+use clippy_utils::macros::is_in_external_macro;
 use rustc_errors::Applicability;
 use rustc_hir::def_id::DefId;
 use rustc_hir::{Expr, ExprKind};
@@ -35,7 +36,7 @@ pub(super) fn check(cx: &LateContext<'_>, expr: &Expr<'_>, cast_expr: &Expr<'_>,
         && let ctxt = expr.span.ctxt()
         && cast_expr.span.ctxt() == ctxt
         && msrv.meets(cx, msrvs::PTR_SLICE_RAW_PARTS)
-        && !expr.span.in_external_macro(cx.tcx.sess.source_map())
+        && !is_in_external_macro(cx.tcx.sess, expr.span)
     {
         let func = match rpk {
             RawPartsKind::Immutable => "from_raw_parts",

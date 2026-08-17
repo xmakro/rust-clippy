@@ -2,6 +2,7 @@ use clippy_utils::diagnostics::span_lint_and_then;
 use clippy_utils::is_in_const_context;
 use clippy_utils::source::snippet_with_context;
 use clippy_utils::ty::implements_trait;
+use clippy_utils::macros::is_in_external_macro;
 use rustc_errors::Applicability;
 use rustc_hir::{Expr, ExprKind, Pat, PatKind};
 use rustc_lint::{LateContext, LateLintPass, LintContext as _};
@@ -79,7 +80,7 @@ fn contains_type_mismatch(cx: &LateContext<'_>, pat: &Pat<'_>) -> bool {
             return false;
         }
 
-        if p.span.in_external_macro(cx.sess().source_map()) {
+        if is_in_external_macro(cx.sess(), p.span) {
             return true;
         }
 

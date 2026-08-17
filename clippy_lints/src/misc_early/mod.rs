@@ -8,6 +8,7 @@ mod unneeded_wildcard_pattern;
 mod zero_prefixed_literal;
 
 use clippy_utils::source::snippet_opt;
+use clippy_utils::macros::is_in_external_macro;
 use rustc_ast::ast::{Expr, ExprKind, Generics, LitFloatType, LitIntType, LitKind, Pat};
 use rustc_ast::token;
 use rustc_lint::{EarlyContext, EarlyLintPass, LintContext as _};
@@ -336,7 +337,7 @@ impl EarlyLintPass for MiscEarlyLints {
                 token::LitKind::Float => lit.suffix.is_some(),
                 _ => false,
             }
-            && !expr.span.in_external_macro(cx.sess().source_map())
+            && !is_in_external_macro(cx.sess(), expr.span)
         {
             MiscEarlyLints::check_lit(cx, lit, expr.span);
         }

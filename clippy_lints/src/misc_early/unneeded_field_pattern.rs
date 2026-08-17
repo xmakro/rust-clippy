@@ -1,6 +1,7 @@
 use clippy_utils::diagnostics::{span_lint, span_lint_and_then};
 use clippy_utils::source::SpanExt as _;
 use itertools::Itertools as _;
+use clippy_utils::macros::is_in_external_macro;
 use rustc_ast::ast::{Pat, PatKind};
 use rustc_lint::{EarlyContext, LintContext as _};
 
@@ -22,7 +23,7 @@ pub(super) fn check(cx: &EarlyContext<'_>, pat: &Pat) {
             }
         }
         if !pfields.is_empty() && wilds == pfields.len() {
-            if !pat.span.in_external_macro(cx.sess().source_map()) {
+            if !is_in_external_macro(cx.sess(), pat.span) {
                 #[expect(clippy::collapsible_span_lint_calls, reason = "rust-clippy#7797")]
                 span_lint_and_then(
                     cx,
@@ -39,7 +40,7 @@ pub(super) fn check(cx: &EarlyContext<'_>, pat: &Pat) {
         if wilds > 0 {
             for field in pfields {
                 if let PatKind::Wild = field.pat.kind
-                    && !field.span.in_external_macro(cx.sess().source_map())
+                    && !is_in_external_macro(cx.sess(), field.span)
                 {
                     wilds -= 1;
                     if wilds > 0 {

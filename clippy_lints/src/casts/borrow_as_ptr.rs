@@ -3,6 +3,7 @@ use clippy_utils::msrvs::Msrv;
 use clippy_utils::source::{snippet_with_applicability, snippet_with_context};
 use clippy_utils::sugg::has_enclosing_paren;
 use clippy_utils::{get_parent_expr, is_expr_temporary_value, is_from_proc_macro, is_lint_allowed, msrvs, std_or_core};
+use clippy_utils::macros::is_in_external_macro;
 use rustc_errors::Applicability;
 use rustc_hir::{BorrowKind, Expr, ExprKind, Mutability, Ty, TyKind};
 use rustc_lint::LateContext;
@@ -24,7 +25,7 @@ pub(super) fn check<'tcx>(
         && !is_lint_allowed(cx, BORROW_AS_PTR, expr.hir_id)
         // Fix #9884
         && !is_expr_temporary_value(cx, e)
-        && !expr.span.in_external_macro(cx.tcx.sess.source_map())
+        && !is_in_external_macro(cx.tcx.sess, expr.span)
         && !is_from_proc_macro(cx, expr)
     {
         let mut app = Applicability::MachineApplicable;

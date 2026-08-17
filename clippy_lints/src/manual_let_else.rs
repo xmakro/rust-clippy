@@ -5,6 +5,7 @@ use clippy_utils::higher::IfLetOrMatch;
 use clippy_utils::res::{MaybeDef as _, MaybeQPath as _};
 use clippy_utils::source::snippet_with_context;
 use clippy_utils::{is_lint_allowed, is_never_expr, is_wild, msrvs, pat_and_expr_can_be_question_mark, peel_blocks};
+use clippy_utils::macros::is_in_external_macro;
 use rustc_ast::BindingMode;
 use rustc_data_structures::fx::FxHashMap;
 use rustc_errors::Applicability;
@@ -56,7 +57,7 @@ impl<'tcx> QuestionMark {
             && local.ty.is_none()
             && init.span.eq_ctxt(stmt.span)
             && let Some(if_let_or_match) = IfLetOrMatch::parse(cx, init)
-            && !stmt.span.in_external_macro(cx.sess().source_map())
+            && !is_in_external_macro(cx.sess(), stmt.span)
             && self.msrv.meets(cx, msrvs::LET_ELSE)
         {
             match if_let_or_match {

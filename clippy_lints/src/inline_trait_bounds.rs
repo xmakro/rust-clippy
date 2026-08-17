@@ -1,6 +1,7 @@
 use clippy_utils::diagnostics::span_lint_and_then;
 use clippy_utils::source::snippet;
 use clippy_utils::sym;
+use clippy_utils::macros::is_in_external_macro;
 use rustc_ast::ast::{Fn, FnRetTy, GenericParam, GenericParamKind};
 use rustc_ast::visit::{FnCtxt, FnKind};
 use rustc_ast::{HasAttrs as _, NodeId};
@@ -77,7 +78,7 @@ impl EarlyLintPass for InlineTraitBounds {
             return;
         }
 
-        if f.sig.span.in_external_macro(cx.sess().source_map()) {
+        if is_in_external_macro(cx.sess(), f.sig.span) {
             return;
         }
 

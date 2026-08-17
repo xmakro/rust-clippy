@@ -5,6 +5,7 @@ use clippy_utils::paths::{self, PathNS, find_crates, lookup_path_str};
 use clippy_utils::res::MaybeResPath as _;
 use clippy_utils::visitors::for_each_expr;
 use clippy_utils::{fn_def_id, is_no_std_crate, sym};
+use clippy_utils::macros::is_in_external_macro;
 use rustc_data_structures::fx::FxIndexMap;
 use rustc_errors::Applicability;
 use rustc_hir::def::{DefKind, Res};
@@ -120,7 +121,7 @@ impl<'hir> LateLintPass<'hir> for NonStdLazyStatic {
             return;
         }
 
-        if item.span.in_external_macro(cx.sess().source_map()) {
+        if is_in_external_macro(cx.sess(), item.span) {
             return;
         }
 
