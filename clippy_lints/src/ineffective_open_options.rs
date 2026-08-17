@@ -5,8 +5,7 @@ use clippy_utils::{peel_blocks, peel_hir_expr_while, sym};
 use rustc_ast::LitKind;
 use rustc_errors::Applicability;
 use rustc_hir::{Expr, ExprKind};
-use rustc_lint::{LateContext, LateLintPass};
-use rustc_session::declare_lint_pass;
+use rustc_lint::LateContext;
 
 declare_clippy_lint! {
     /// ### What it does
@@ -40,64 +39,60 @@ declare_clippy_lint! {
     "usage of both `write(true)` and `append(true)` on same `OpenOptions`"
 }
 
-declare_lint_pass!(IneffectiveOpenOptions => [INEFFECTIVE_OPEN_OPTIONS]);
-
-impl<'tcx> LateLintPass<'tcx> for IneffectiveOpenOptions {
-    fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'_>) {
-        if let ExprKind::MethodCall(name, recv, [_], _) = expr.kind
-            && name.ident.name == sym::open
-            && !expr.span.from_expansion()
-            && cx
-                .typeck_results()
-                .expr_ty(recv)
-                .peel_refs()
-                .is_diag_item(cx, sym::FsOpenOptions)
-        {
-            let mut append = false;
-            let mut write = None;
-            peel_hir_expr_while(recv, |e| {
-                if let ExprKind::MethodCall(name, recv, args, call_span) = e.kind
-                    && !e.span.from_expansion()
+pub(crate) fn check<'tcx>(cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>) {
+    if let ExprKind::MethodCall(name, recv, [_], _) = expr.kind
+        && name.ident.name == sym::open
+        && !expr.span.from_expansion()
+        && cx
+            .typeck_results()
+            .expr_ty(recv)
+            .peel_refs()
+            .is_diag_item(cx, sym::FsOpenOptions)
+    {
+        let mut append = false;
+        let mut write = None;
+        peel_hir_expr_while(recv, |e| {
+            if let ExprKind::MethodCall(name, recv, args, call_span) = e.kind
+                && !e.span.from_expansion()
+            {
+                if let [arg] = args
+                    && let ExprKind::Lit(lit) = peel_blocks(arg).kind
+                    && matches!(lit.node, LitKind::Bool(true))
+                    && !arg.span.from_expansion()
+                    && !lit.span.from_expansion()
                 {
-                    if let [arg] = args
-                        && let ExprKind::Lit(lit) = peel_blocks(arg).kind
-                        && matches!(lit.node, LitKind::Bool(true))
-                        && !arg.span.from_expansion()
-                        && !lit.span.from_expansion()
-                    {
-                        match name.ident.name {
-                            sym::append => append = true,
-                            sym::write
-                                if let Some(range) = call_span.map_range(cx, |_, text, range| {
-                                    if text.get(..range.start)?.ends_with('.') {
-                                        Some(range.start - 1..range.end)
-                                    } else {
-                                        None
-                                    }
-                                }) =>
-                            {
-                                write = Some(call_span.with_lo(range.start));
-                            },
-                            _ => {},
-                        }
+                    match name.ident.name {
+                        sym::append => append = true,
+                        sym::write
+                            if let Some(range) = call_span.map_range(cx, |_, text, range| {
+                                if text.get(..range.start)?.ends_with('.') {
+                                    Some(range.start - 1..range.end)
+                                } else {
+                                    None
+                                }
+                            }) =>
+                        {
+                            write = Some(call_span.with_lo(range.start));
+                        },
+                        _ => {},
                     }
-                    Some(recv)
-                } else {
-                    None
                 }
-            });
-
-            if append && let Some(write_span) = write {
-                span_lint_and_sugg(
-                    cx,
-                    INEFFECTIVE_OPEN_OPTIONS,
-                    write_span,
-                    "unnecessary use of `.write(true)` because there is `.append(true)`",
-                    "remove `.write(true)`",
-                    String::new(),
-                    Applicability::MachineApplicable,
-                );
+                Some(recv)
+            } else {
+                None
             }
+        });
+
+        if append && let Some(write_span) = write {
+            span_lint_and_sugg(
+                cx,
+                INEFFECTIVE_OPEN_OPTIONS,
+                write_span,
+                "unnecessary use of `.write(true)` because there is `.append(true)`",
+                "remove `.write(true)`",
+                String::new(),
+                Applicability::MachineApplicable,
+            );
         }
     }
 }
