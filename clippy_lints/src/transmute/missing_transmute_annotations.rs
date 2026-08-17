@@ -2,6 +2,7 @@ use std::borrow::Cow;
 
 use clippy_utils::diagnostics::span_lint_and_then;
 use clippy_utils::source::SpanExt as _;
+use clippy_utils::macros::is_in_external_macro;
 use rustc_errors::Applicability;
 use rustc_hir::{Expr, GenericArg, HirId, LetStmt, Node, Path, TyKind};
 use rustc_lint::LateContext;
@@ -48,7 +49,7 @@ pub(super) fn check<'tcx>(
     expr_hir_id: HirId,
 ) -> bool {
     let last = path.segments.last().unwrap();
-    if last.ident.span.in_external_macro(cx.tcx.sess.source_map()) {
+    if is_in_external_macro(cx.tcx.sess, last.ident.span) {
         // If it comes from a non-local macro, we ignore it.
         return false;
     }

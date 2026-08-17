@@ -2,6 +2,7 @@ use clippy_utils::diagnostics::span_lint_and_sugg;
 use clippy_utils::higher::If;
 use clippy_utils::is_from_proc_macro;
 use clippy_utils::source::{SpanExt as _, walk_span_to_context};
+use clippy_utils::macros::is_in_external_macro;
 use rustc_errors::Applicability;
 use rustc_hir::{ExprKind, Stmt, StmtKind};
 use rustc_lint::{LateContext, LateLintPass, LintContext as _};
@@ -47,7 +48,7 @@ impl LateLintPass<'_> for NeedlessIfs {
             && let ExprKind::Block(block, ..) = then.kind
             && block.stmts.is_empty()
             && block.expr.is_none()
-            && !expr.span.in_external_macro(cx.sess().source_map())
+            && !is_in_external_macro(cx.sess(), expr.span)
             && then.span.check_text(cx, |src| {
                 // Ignore
                 // - empty macro expansions

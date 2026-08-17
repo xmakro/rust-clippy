@@ -8,6 +8,7 @@ use clippy_utils::source::walk_span_to_context;
 use clippy_utils::visitors::{Descend, for_each_expr};
 use clippy_utils::{higher, is_lint_allowed};
 use hir::HirId;
+use clippy_utils::macros::is_in_external_macro;
 use rustc_errors::Applicability;
 use rustc_hir::{self as hir, Block, BlockCheckMode, FnSig, Impl, ItemKind, Node, UnsafeSource};
 use rustc_lexer::{FrontmatterAllowed, TokenKind, tokenize};
@@ -115,7 +116,7 @@ impl UndocumentedUnsafeBlocks {
 impl<'tcx> LateLintPass<'tcx> for UndocumentedUnsafeBlocks {
     fn check_block(&mut self, cx: &LateContext<'tcx>, block: &'tcx Block<'tcx>) {
         if block.rules == BlockCheckMode::UnsafeBlock(UnsafeSource::UserProvided)
-            && !block.span.in_external_macro(cx.tcx.sess.source_map())
+            && !is_in_external_macro(cx.tcx.sess, block.span)
             && !is_lint_allowed(cx, UNDOCUMENTED_UNSAFE_BLOCKS, block.hir_id)
             && !is_unsafe_from_proc_macro(cx, block.span)
             && !block_has_safety_comment(cx, block.span, self.accept_comment_above_attributes)
@@ -148,7 +149,7 @@ impl<'tcx> LateLintPass<'tcx> for UndocumentedUnsafeBlocks {
 
         if let Some(tail) = block.expr
             && !is_lint_allowed(cx, UNNECESSARY_SAFETY_COMMENT, tail.hir_id)
-            && !tail.span.in_external_macro(cx.tcx.sess.source_map())
+            && !is_in_external_macro(cx.tcx.sess, tail.span)
             && let HasSafetyComment::Yes(pos, _) =
                 stmt_has_safety_comment(cx, tail.span, tail.hir_id, self.accept_comment_above_attributes)
             && let Some(help_span) = expr_has_unnecessary_safety_comment(cx, tail, pos)
@@ -176,7 +177,7 @@ impl<'tcx> LateLintPass<'tcx> for UndocumentedUnsafeBlocks {
         // comment apply to the undesugared assignment nevertheless.
         let expr = higher::CompoundAssignment::hir(expr).map_or(expr, |c| c.init);
         if !is_lint_allowed(cx, UNNECESSARY_SAFETY_COMMENT, stmt.hir_id)
-            && !stmt.span.in_external_macro(cx.tcx.sess.source_map())
+            && !is_in_external_macro(cx.tcx.sess, stmt.span)
             && let HasSafetyComment::Yes(pos, _) =
                 stmt_has_safety_comment(cx, stmt.span, stmt.hir_id, self.accept_comment_above_attributes)
             && let Some(help_span) = expr_has_unnecessary_safety_comment(cx, expr, pos)
@@ -194,7 +195,7 @@ impl<'tcx> LateLintPass<'tcx> for UndocumentedUnsafeBlocks {
     }
 
     fn check_item(&mut self, cx: &LateContext<'tcx>, item: &hir::Item<'tcx>) {
-        if item.span.in_external_macro(cx.tcx.sess.source_map()) {
+        if is_in_external_macro(cx.tcx.sess, item.span) {
             return;
         }
 

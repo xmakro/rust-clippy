@@ -3,6 +3,7 @@ use clippy_utils::diagnostics::{span_lint_and_then, span_lint_hir_and_then};
 use clippy_utils::is_from_proc_macro;
 use core::iter;
 use core::num::NonZero;
+use clippy_utils::macros::is_in_external_macro;
 use rustc_data_structures::fx::FxHashSet;
 use rustc_errors::pluralize;
 use rustc_hir::{
@@ -96,7 +97,7 @@ impl MinIdentChars {
     }
 
     fn emit(&self, cx: &LateContext<'_>, ident: Ident, missing: NonZero<usize>) {
-        if !ident.span.in_external_macro(cx.tcx.sess.source_map()) && !is_from_proc_macro(cx, &ident) {
+        if !is_in_external_macro(cx.tcx.sess, ident.span) && !is_from_proc_macro(cx, &ident) {
             span_lint_and_then(cx, MIN_IDENT_CHARS, ident.span, self.lint_msg(missing), |diag| {
                 // FIXME(@Jarcho): Capture a span from the config and point to it here.
                 if self.min_chars_threshold != 1 {
@@ -107,7 +108,7 @@ impl MinIdentChars {
     }
 
     fn emit_hir(&self, cx: &LateContext<'_>, id: HirId, ident: Ident, missing: NonZero<usize>) {
-        if !ident.span.in_external_macro(cx.tcx.sess.source_map()) && !is_from_proc_macro(cx, &ident) {
+        if !is_in_external_macro(cx.tcx.sess, ident.span) && !is_from_proc_macro(cx, &ident) {
             span_lint_hir_and_then(cx, MIN_IDENT_CHARS, id, ident.span, self.lint_msg(missing), |diag| {
                 diag.note_once(format!("the configured threshold is {}", self.min_chars_threshold));
             });

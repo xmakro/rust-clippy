@@ -3,6 +3,7 @@ use clippy_utils::diagnostics::{span_lint, span_lint_and_then};
 use clippy_utils::msrvs::{self, Msrv};
 use clippy_utils::{is_from_proc_macro, trait_ref_of_method};
 use itertools::Itertools as _;
+use clippy_utils::macros::is_in_external_macro;
 use rustc_ast::visit::{try_visit, walk_list};
 use rustc_data_structures::fx::{FxHashSet, FxIndexMap, FxIndexSet};
 use rustc_errors::Applicability;
@@ -216,7 +217,7 @@ fn check_fn_inner<'tcx>(
     msrv: Msrv,
     is_from_proc_macro: impl FnOnce() -> bool,
 ) {
-    if span.in_external_macro(cx.sess().source_map()) || has_where_lifetimes(cx, generics) {
+    if is_in_external_macro(cx.sess(), span) || has_where_lifetimes(cx, generics) {
         return;
     }
 

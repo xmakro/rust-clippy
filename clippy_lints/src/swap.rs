@@ -6,6 +6,7 @@ use clippy_utils::sugg::Sugg;
 use clippy_utils::{can_mut_borrow_both, eq_expr_value, is_in_const_context, std_or_core, sym};
 use itertools::Itertools as _;
 
+use clippy_utils::macros::is_ctxt_in_external_macro;
 use rustc_data_structures::fx::FxIndexSet;
 use rustc_hir::intravisit::{Visitor, walk_expr};
 
@@ -212,7 +213,7 @@ fn check_suspicious_swap(cx: &LateContext<'_>, block: &Block<'_>) {
             && let Some((lhs1, rhs1)) = parse(second)
             && let ctxt = first.span.ctxt()
             && ctxt == second.span.ctxt()
-			&& !ctxt.in_external_macro(cx.sess().source_map())
+			&& !is_ctxt_in_external_macro(cx.sess(), ctxt)
             && is_same(cx, ctxt, lhs0, rhs1)
             && is_same(cx, ctxt, lhs1, rhs0)
 			&& !is_same(cx, ctxt, lhs1, rhs1) // Ignore a = b; a = a (#10421)

@@ -2,6 +2,7 @@ use clippy_utils::diagnostics::span_lint_and_then;
 use clippy_utils::res::{MaybeDef as _, MaybeTypeckRes as _};
 use clippy_utils::{is_lint_allowed, sym};
 use core::ptr;
+use clippy_utils::macros::is_in_external_macro;
 use rustc_errors::Applicability;
 use rustc_hir::{Expr, ExprKind, QPath};
 use rustc_lint::{LateContext, LateLintPass};
@@ -105,7 +106,7 @@ impl LateLintPass<'_> for EndianBytes {
             // catch when the wrong byte order is used so we only care if the current crate
             // decided on the byte order. Which crate actually assembled the path/call
             // isn't relevant for these lints.
-            && !sp.in_external_macro(cx.tcx.sess.source_map())
+            && !is_in_external_macro(cx.tcx.sess, sp)
         {
             span_lint_and_then(cx, lint, sp, msg, |diag| {
                 if !ptr::addr_eq(lint, HOST_ENDIAN_BYTES) && is_lint_allowed(cx, HOST_ENDIAN_BYTES, e.hir_id) {

@@ -1,5 +1,6 @@
 use clippy_utils::diagnostics::span_lint_and_then;
 use clippy_utils::is_from_proc_macro;
+use clippy_utils::macros::is_in_external_macro;
 use rustc_errors::Applicability;
 use rustc_lint::LateLintPass;
 use rustc_middle::ty;
@@ -112,7 +113,7 @@ impl<'tcx> LateLintPass<'tcx> for RestWhenDestructuringStruct {
 
             // Filter out results from macros
             if (missing_suggestions.is_empty() && needs_dotdot)
-                || pat.span.in_external_macro(cx.tcx.sess.source_map())
+                || is_in_external_macro(cx.tcx.sess, pat.span)
                 || is_from_proc_macro(cx, pat)
             {
                 return;

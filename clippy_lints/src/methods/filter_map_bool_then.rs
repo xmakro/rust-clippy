@@ -4,6 +4,7 @@ use clippy_utils::res::{MaybeDef as _, MaybeTypeckRes as _};
 use clippy_utils::source::{SpanExt as _, snippet_with_context};
 use clippy_utils::ty::is_copy;
 use clippy_utils::{CaptureKind, can_move_expr_to_closure, contains_return, is_from_proc_macro, peel_blocks, sym};
+use clippy_utils::macros::is_in_external_macro;
 use rustc_ast::Mutability;
 use rustc_data_structures::fx::FxHashSet;
 use rustc_errors::Applicability;
@@ -36,7 +37,7 @@ pub(super) fn check<'tcx>(cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>, arg: &
         && let then_body = peel_blocks(cx.tcx.hir_body(then_closure.body).value)
         && let Some(def_id) = cx.typeck_results().type_dependent_def_id(value.hir_id)
         && cx.tcx.is_diagnostic_item(sym::bool_then, def_id)
-        && !expr.span.in_external_macro(cx.sess().source_map())
+        && !is_in_external_macro(cx.sess(), expr.span)
         && !is_from_proc_macro(cx, expr)
         // Count the number of derefs needed to get to the bool because we need those in the suggestion
         && let needed_derefs = cx.typeck_results().expr_adjustments(recv)

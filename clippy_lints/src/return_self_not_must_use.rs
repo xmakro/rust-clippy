@@ -1,6 +1,7 @@
 use clippy_utils::diagnostics::span_lint_and_help;
 use clippy_utils::ty::opt_must_use_path;
 use clippy_utils::{nth_arg, return_ty};
+use clippy_utils::macros::is_in_external_macro;
 use rustc_hir::def_id::LocalDefId;
 use rustc_hir::intravisit::FnKind;
 use rustc_hir::{Body, FnDecl, OwnerId, TraitItem, TraitItemKind, find_attr};
@@ -86,7 +87,7 @@ fn check_method(cx: &LateContext<'_>, decl: &FnDecl<'_>, fn_def: LocalDefId, spa
         && self_arg.peel_refs() == ret_ty
         // If `Self` is already considered as `#[must_use]`, no need for the attribute here.
         && opt_must_use_path(cx, ret_ty).is_none()
-        && !span.in_external_macro(cx.sess().source_map())
+        && !is_in_external_macro(cx.sess(), span)
     {
         span_lint_and_help(
             cx,

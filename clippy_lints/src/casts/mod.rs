@@ -30,6 +30,7 @@ mod zero_ptr;
 use clippy_config::Conf;
 use clippy_utils::is_hir_ty_cfg_dependant;
 use clippy_utils::msrvs::{self, Msrv};
+use clippy_utils::macros::is_in_external_macro;
 use rustc_hir::{Expr, ExprKind};
 use rustc_lint::{LateContext, LateLintPass, LintContext as _};
 use rustc_session::impl_lint_pass;
@@ -890,7 +891,7 @@ impl Casts {
 impl<'tcx> LateLintPass<'tcx> for Casts {
     fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'_>) {
         if let ExprKind::Cast(cast_from_expr, cast_to_hir) = expr.kind {
-            if expr.span.in_external_macro(cx.sess().source_map()) {
+            if is_in_external_macro(cx.sess(), expr.span) {
                 return;
             }
             if is_hir_ty_cfg_dependant(cx, cast_to_hir) {

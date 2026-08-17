@@ -5,6 +5,7 @@ use clippy_utils::sugg::has_enclosing_paren;
 use clippy_utils::visitors::for_each_expr;
 use clippy_utils::{binary_expr_needs_parentheses, fn_def_id, span_contains_non_whitespace};
 use core::ops::ControlFlow;
+use clippy_utils::macros::is_in_external_macro;
 use rustc_errors::Applicability;
 use rustc_hir::{Block, Expr, PatKind, Stmt, StmtKind};
 use rustc_lint::{LateContext, Level, LintContext as _};
@@ -25,8 +26,8 @@ pub(super) fn check_block<'tcx>(cx: &LateContext<'tcx>, block: &'tcx Block<'_>) 
         && let PatKind::Binding(_, local_id, _, _) = local.pat.kind
         && retexpr.res_local_id() == Some(local_id)
         && (cx.sess().edition() >= Edition::Edition2024 || !last_statement_borrows(cx, initexpr))
-        && !initexpr.span.in_external_macro(cx.sess().source_map())
-        && !retexpr.span.in_external_macro(cx.sess().source_map())
+        && !is_in_external_macro(cx.sess(), initexpr.span)
+        && !is_in_external_macro(cx.sess(), retexpr.span)
         && !local.span.from_expansion()
         && has_lint_attrs_or_only_whitespace_between(cx, retexpr, stmt)
     {

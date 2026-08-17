@@ -3,6 +3,7 @@ use clippy_utils::diagnostics::span_lint_and_sugg;
 use clippy_utils::msrvs::{self, Msrv};
 use clippy_utils::source::snippet_with_context;
 use clippy_utils::{is_from_proc_macro, sym};
+use clippy_utils::macros::is_in_external_macro;
 use rustc_ast::LitKind;
 use rustc_data_structures::packed::Pu128;
 use rustc_errors::Applicability;
@@ -73,7 +74,7 @@ impl LateLintPass<'_> for ManualIlog2 {
                     }
                     && val == u128::from(bit_width) - 1
                     && self.msrv.meets(cx, msrvs::ILOG2)
-                    && !expr.span.in_external_macro(cx.sess().source_map())
+                    && !is_in_external_macro(cx.sess(), expr.span)
                     && !is_from_proc_macro(cx, expr) =>
             {
                 emit(cx, recv, expr);
@@ -87,7 +88,7 @@ impl LateLintPass<'_> for ManualIlog2 {
                     && let LitKind::Int(Pu128(2), _) = lit.node
                     && cx.typeck_results().expr_ty_adjusted(recv).is_integral()
                     /* no need to check MSRV here, as `ilog` and `ilog2` were introduced simultaneously */
-                    && !expr.span.in_external_macro(cx.sess().source_map())
+                    && !is_in_external_macro(cx.sess(), expr.span)
                     && !is_from_proc_macro(cx, expr) =>
             {
                 emit(cx, recv, expr);

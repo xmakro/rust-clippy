@@ -3,6 +3,7 @@ use std::iter;
 
 use clippy_config::Conf;
 use clippy_utils::diagnostics::span_lint_hir_and_then;
+use clippy_utils::macros::is_in_external_macro;
 use clippy_utils::msrvs::Msrv;
 use clippy_utils::res::{MaybeDef as _, MaybeResPath as _};
 use clippy_utils::source::snippet;
@@ -450,7 +451,7 @@ impl<'tcx> Visitor<'tcx> for UnwrappableVariablesVisitor<'_, 'tcx> {
                 && let span_ctxt = expr.span.ctxt()
                 && unwrappable.branch.span.ctxt() == span_ctxt
                 && unwrappable.check.span.ctxt() == span_ctxt
-                && !expr.span.in_external_macro(self.cx.tcx.sess.source_map())
+                && !is_in_external_macro(self.cx.tcx.sess, expr.span)
             {
                 if call_to_unwrap == unwrappable.safe_to_unwrap {
                     let unwrappable_variable_str = unwrappable.local.snippet(self.cx);

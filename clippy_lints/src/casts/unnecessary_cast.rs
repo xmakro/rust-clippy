@@ -5,6 +5,7 @@ use clippy_utils::source::{SpanExt as _, snippet, snippet_with_applicability};
 use clippy_utils::sugg::has_enclosing_paren;
 use clippy_utils::visitors::{Visitable, for_each_expr_without_closures};
 use clippy_utils::{get_parent_expr, is_hir_ty_cfg_dependant, is_ty_alias, sym};
+use clippy_utils::macros::is_in_external_macro;
 use rustc_ast::{LitFloatType, LitIntType, LitKind};
 use rustc_errors::Applicability;
 use rustc_hir::def::{DefKind, Res};
@@ -151,7 +152,7 @@ pub(super) fn check<'tcx>(
         }
     }
 
-    if cast_from.kind() == cast_to.kind() && !expr.span.in_external_macro(cx.sess().source_map()) {
+    if cast_from.kind() == cast_to.kind() && !is_in_external_macro(cx.sess(), expr.span) {
         fn is_borrow_expr(cx: &LateContext<'_>, expr: &Expr<'_>) -> bool {
             matches!(expr.kind, ExprKind::AddrOf(..))
                 || cx

@@ -5,6 +5,7 @@ use clippy_utils::qualify_min_const_fn::is_min_const_fn;
 use clippy_utils::{
     fn_has_unsatisfiable_clauses, is_entrypoint_fn, is_from_proc_macro, is_in_test, trait_ref_of_method,
 };
+use clippy_utils::macros::is_in_external_macro;
 use rustc_abi::ExternAbi;
 use rustc_errors::Applicability;
 use rustc_hir::def_id::CRATE_DEF_ID;
@@ -153,7 +154,7 @@ impl<'tcx> LateLintPass<'tcx> for MissingConstForFn {
             return;
         }
 
-        if (span.from_expansion() && span.in_external_macro(cx.tcx.sess.source_map()))
+        if (span.from_expansion() && is_in_external_macro(cx.tcx.sess, span))
             || is_from_proc_macro(cx, &(&kind, body, hir_id, span))
         {
             return;

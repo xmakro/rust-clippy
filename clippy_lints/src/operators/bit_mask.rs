@@ -4,6 +4,7 @@ use clippy_utils::is_from_proc_macro;
 use clippy_utils::source::walk_span_to_context;
 use core::cmp::Ordering;
 use core::convert::identity;
+use clippy_utils::macros::is_ctxt_in_external_macro;
 use rustc_hir::{BinOpKind, Expr, ExprKind};
 use rustc_lint::LateContext;
 use rustc_middle::ty;
@@ -47,7 +48,7 @@ pub(super) fn check<'tcx>(
         return;
     };
 
-    if !ctxt.in_external_macro(cx.tcx.sess.source_map())
+    if !is_ctxt_in_external_macro(cx.tcx.sess, ctxt)
         && let ty = typeck.expr_ty(bit_lhs).peel_refs()
         && matches!(ty.kind(), ty::Uint(_) | ty::Int(_))
         && matches!(typeck.expr_ty(bit_rhs).peel_refs().kind(), ty::Uint(_) | ty::Int(_))
