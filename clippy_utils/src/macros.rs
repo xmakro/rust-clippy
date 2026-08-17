@@ -11,6 +11,7 @@ use rustc_ast::{FormatArgs, FormatArgument, FormatPlaceholder};
 use rustc_data_structures::fx::FxHashMap;
 use rustc_hir::{self as hir, Expr, ExprKind, HirId, Node, QPath};
 use rustc_lint::{LateContext, LintContext as _};
+use rustc_session::Session;
 use rustc_span::def_id::DefId;
 use rustc_span::hygiene::{self, MacroKind, SyntaxContext};
 use rustc_span::{BytePos, ExpnData, ExpnId, ExpnKind, Span, SpanData, Symbol};
@@ -110,6 +111,23 @@ pub fn expn_is_local(expn: ExpnId) -> bool {
         .is_none_or(DefId::is_local)
 }
 
+/// Checks if the given span is in an external macro.
+///
+/// Like [`Span::in_external_macro`], but skips the expansion-data read for spans that are not
+/// from an expansion at all: the underlying check clones an `ExpnData` behind the hygiene lock
+/// even for root-context spans, and lints gate on this for every node they visit, where the
+/// root context is the common case.
+#[inline]
+pub fn is_in_external_macro(sess: &Session, span: Span) -> bool {
+    is_ctxt_in_external_macro(sess, span.ctxt())
+}
+
+/// Like [`is_in_external_macro`], but takes the span's [`SyntaxContext`] directly.
+#[inline]
+pub fn is_ctxt_in_external_macro(sess: &Session, ctxt: SyntaxContext) -> bool {
+    !ctxt.is_root() && ctxt.in_external_macro(sess.source_map())
+}
+
 /// Returns an iterator of macro expansions that created the given span.
 /// Note that desugaring expansions are skipped.
 pub fn macro_backtrace(span: Span) -> impl Iterator<Item = MacroCall> {
@@ -207,24 +225,41 @@ thread_local! {
 }
 
 fn first_node_in_macro_uncached(cx: &LateContext<'_>, node: &impl HirNode) -> Option<ExpnId> {
-    // get the macro expansion or return `None` if not found
-    // `macro_backtrace` importantly ignores desugaring expansions
-    let expn = macro_backtrace(node.span()).next()?.expn;
+    let span = node.span();
 
     // get the parent node, possibly skipping over a statement
-    // if the parent is not found, it is sensible to return `Some(root)`
     let mut parent_iter = cx.tcx.hir_parent_iter(node.hir_id());
-    let (parent_id, _) = match parent_iter.next() {
-        None => return Some(ExpnId::root()),
-        Some((_, Node::Stmt(_))) => match parent_iter.next() {
-            None => return Some(ExpnId::root()),
-            Some(next) => next,
-        },
-        Some(next) => next,
+    let parent_id = match parent_iter.next() {
+        None => None,
+        Some((_, Node::Stmt(_))) => parent_iter.next().map(|(id, _)| id),
+        Some((id, _)) => Some(id),
+    };
+    // Only the context of the parent span matters below (both the equality fast path and the
+    // macro backtrace are functions of it), and the raw node span shares the context of the
+    // adjusted one `hir_span` computes, without its ancestor searches.
+    let parent_span = parent_id.map(|id| cx.tcx.hir_span_with_body(id));
+
+    // If the parent is in the same syntax context, `node` cannot be the first node of an
+    // expansion: the macro backtrace is determined by the syntax context alone, so both spans
+    // either yield the same macro call (making `node` a descendant of it) or no macro call at
+    // all. Both cases return `None`, and checking it here skips the hygiene walks below for
+    // the common case of a node in the middle of an expansion.
+    if let Some(parent_span) = parent_span
+        && parent_span.eq_ctxt(span)
+    {
+        return None;
+    }
+
+    // get the macro expansion or return `None` if not found
+    // `macro_backtrace` importantly ignores desugaring expansions
+    let expn = macro_backtrace(span).next()?.expn;
+
+    // if the parent is not found, it is sensible to return `Some(root)`
+    let Some(parent_span) = parent_span else {
+        return Some(ExpnId::root());
     };
 
     // get the macro expansion of the parent node
-    let parent_span = cx.tcx.hir_span(parent_id);
     let Some(parent_macro_call) = macro_backtrace(parent_span).next() else {
         // the parent node is not in a macro
         return Some(ExpnId::root());

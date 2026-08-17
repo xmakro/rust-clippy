@@ -4,6 +4,7 @@ use clippy_utils::msrvs::{self, Msrv};
 use clippy_utils::source::SpanExt as _;
 use clippy_utils::{is_from_proc_macro, sym};
 use hir::def_id::DefId;
+use clippy_utils::macros::is_in_external_macro;
 use rustc_errors::Applicability;
 use rustc_hir as hir;
 use rustc_hir::{ExprKind, Item, ItemKind, QPath, UseKind};
@@ -52,7 +53,7 @@ impl<'tcx> LateLintPass<'tcx> for LegacyNumericConstants {
         // Integer modules are "TBD" deprecated, and the contents are too,
         // so lint on the `use` statement directly.
         if let ItemKind::Use(path, kind @ (UseKind::Single(_) | UseKind::Glob)) = item.kind
-            && !item.span.in_external_macro(cx.sess().source_map())
+            && !is_in_external_macro(cx.sess(), item.span)
             // use `present_items` because it could be in either type_ns or value_ns
             && let Some(res) = path.res.present_items().next()
             && let Some(def_id) = res.opt_def_id()
@@ -130,7 +131,7 @@ impl<'tcx> LateLintPass<'tcx> for LegacyNumericConstants {
             return;
         };
 
-        if !expr.span.in_external_macro(cx.sess().source_map())
+        if !is_in_external_macro(cx.sess(), expr.span)
             && self.msrv.meets(cx, msrvs::NUMERIC_ASSOCIATED_CONSTANTS)
             && !is_from_proc_macro(cx, expr)
         {

@@ -1,4 +1,6 @@
 use clippy_utils::diagnostics::span_lint;
+use clippy_utils::is_lint_allowed;
+use clippy_utils::macros::is_in_external_macro;
 use clippy_utils::source::SpanExt as _;
 use rustc_hir as hir;
 use rustc_hir::def_id::LocalDefId;
@@ -18,7 +20,13 @@ pub(super) fn check_fn(
 ) {
     // Closures must be contained in a parent body, which will be checked for `too_many_lines`.
     // Don't check closures for `too_many_lines` to avoid duplicated lints.
-    if matches!(kind, FnKind::Closure) || (span.from_expansion() && span.in_external_macro(cx.sess().source_map())) {
+    if matches!(kind, FnKind::Closure) || (span.from_expansion() && is_in_external_macro(cx.sess(), span)) {
+        return;
+    }
+
+    // The lint is allow-by-default; when it is not enabled for this function, skip scanning the
+    // function's whole source text below.
+    if is_lint_allowed(cx, TOO_MANY_LINES, cx.tcx.local_def_id_to_hir_id(def_id)) {
         return;
     }
 

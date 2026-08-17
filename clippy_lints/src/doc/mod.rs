@@ -1,9 +1,11 @@
 use clippy_config::Conf;
 use clippy_utils::attrs::is_doc_hidden;
 use clippy_utils::diagnostics::{span_lint, span_lint_and_help, span_lint_and_then};
-use clippy_utils::{is_entrypoint_fn, is_trait_impl_item};
+use clippy_utils::macros::is_in_external_macro;
+use clippy_utils::{is_entrypoint_fn, is_trait_impl_item, sym};
 use rustc_data_structures::fx::FxHashSet;
 use rustc_errors::Applicability;
+use rustc_hir::attrs::AttributeKind;
 use rustc_hir::{Attribute, FieldDef, ImplItemKind, ItemKind, Node, Safety, TraitItemKind};
 use rustc_lint::{EarlyContext, EarlyLintPass, LateContext, LateLintPass, LintContext as _};
 use rustc_resolve::rustdoc::pulldown_cmark::Event::{
@@ -783,7 +785,7 @@ impl<'tcx> LateLintPass<'tcx> for Documentation {
                 match item.kind {
                     ItemKind::Fn { sig, body, .. }
                         if !(is_entrypoint_fn(cx, item.owner_id.to_def_id())
-                            || item.span.in_external_macro(cx.tcx.sess.source_map())) =>
+                            || is_in_external_macro(cx.tcx.sess, item.span)) =>
                     {
                         missing_headers::check(cx, item.owner_id, sig, headers, Some(body), self.check_private_items);
                     },
@@ -807,14 +809,14 @@ impl<'tcx> LateLintPass<'tcx> for Documentation {
             },
             Node::TraitItem(trait_item) => {
                 if let TraitItemKind::Fn(sig, ..) = trait_item.kind
-                    && !trait_item.span.in_external_macro(cx.tcx.sess.source_map())
+                    && !is_in_external_macro(cx.tcx.sess, trait_item.span)
                 {
                     missing_headers::check(cx, trait_item.owner_id, sig, headers, None, self.check_private_items);
                 }
             },
             Node::ImplItem(impl_item) => {
                 if let ImplItemKind::Fn(sig, body_id) = impl_item.kind
-                    && !impl_item.span.in_external_macro(cx.tcx.sess.source_map())
+                    && !is_in_external_macro(cx.tcx.sess, impl_item.span)
                     && !is_trait_impl_item(cx, impl_item.hir_id())
                 {
                     missing_headers::check(
@@ -872,13 +874,26 @@ fn check_attrs(cx: &LateContext<'_>, valid_idents: &FxHashSet<String>, attrs: &[
         Some(("fake".into(), "fake".into()))
     }
 
+    // Everything this function looks at lives in a doc comment, a `#[doc = ...]` value or a
+    // `#[doc(...)]` list. Most nodes have no such attribute, so skip the fragment collection
+    // and string assembly entirely for them; the result is the same as falling through with an
+    // empty `doc` below, without a fragment span to lint.
+    if !attrs.iter().any(|attr| {
+        matches!(
+            attr,
+            Attribute::Parsed(AttributeKind::DocComment { .. } | AttributeKind::Doc(_))
+        ) || attr.has_name(sym::doc)
+    }) {
+        return Some(DocHeaders::default());
+    }
+
     if suspicious_doc_comments::check(cx, attrs) || is_doc_hidden(attrs) {
         return None;
     }
 
     let (fragments, _) = attrs_to_doc_fragments(
         attrs.iter().filter_map(|attr| {
-            if attr.doc_str_and_fragment_kind().is_none() || attr.span().in_external_macro(cx.sess().source_map()) {
+            if attr.doc_str_and_fragment_kind().is_none() || is_in_external_macro(cx.sess(), attr.span()) {
                 None
             } else {
                 Some((attr, None))

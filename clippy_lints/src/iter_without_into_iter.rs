@@ -2,6 +2,7 @@ use clippy_utils::diagnostics::span_lint_and_then;
 use clippy_utils::source::snippet;
 use clippy_utils::ty::{deref_chain, get_adt_inherent_method, implements_trait, make_normalized_projection};
 use clippy_utils::{get_parent_as_impl, sym};
+use clippy_utils::macros::is_in_external_macro;
 use rustc_ast::Mutability;
 use rustc_errors::Applicability;
 use rustc_hir::{FnRetTy, ImplItemKind, ImplicitSelfKind, ItemKind, TyKind};
@@ -133,7 +134,7 @@ impl LateLintPass<'_> for IterWithoutIntoIter {
                 .trait_ref
                 .trait_def_id()
                 .is_some_and(|did| cx.tcx.is_diagnostic_item(sym::IntoIterator, did))
-            && !item.span.in_external_macro(cx.sess().source_map())
+            && !is_in_external_macro(cx.sess(), item.span)
             && let &ty::Ref(_, ty, mtbl) = cx
                 .tcx
                 .type_of(item.owner_id)
@@ -234,7 +235,7 @@ impl {self_ty_without_ref} {{
             // Only lint if the `IntoIterator` impl doesn't actually exist
             && !implements_trait(cx, ref_ty, into_iter_did, &[])
             && is_ty_exported(cx, ref_ty.peel_refs())
-            && !item.span.in_external_macro(cx.sess().source_map())
+            && !is_in_external_macro(cx.sess(), item.span)
         {
             let self_ty_snippet = format!("{borrow_prefix}{}", snippet(cx, imp.self_ty.span, ".."));
 

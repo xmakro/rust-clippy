@@ -1,0 +1,59 @@
+error: `if` expression with an `else if`, but without a final `else`
+  --> tests/ui/combined_early_pass_gating.rs:16:12
+   |
+LL |       } else if b {
+   |  ____________^
+LL | |
+LL | |         println!("b");
+LL | |     }
+   | |_____^
+   |
+   = help: add an `else` block here
+   = note: `-D clippy::else-if-without-else` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::else_if_without_else)]`
+
+error: `if` expression with an `else if`, but without a final `else`
+  --> tests/ui/combined_early_pass_gating.rs:29:16
+   |
+LL |           } else if b {
+   |  ________________^
+LL | |
+LL | |             println!("b");
+LL | |         }
+   | |_________^
+   |
+   = help: add an `else` block here
+
+error: `if` expression with an `else if`, but without a final `else`
+  --> tests/ui/combined_early_pass_gating.rs:44:20
+   |
+LL |               } else if b {
+   |  ____________________^
+LL | |
+LL | |                 println!("b");
+LL | |             }
+   | |_____________^
+   |
+   = help: add an `else` block here
+
+error: redundant else block
+  --> tests/ui/combined_early_pass_gating.rs:72:6
+   |
+LL |       } else {
+   |  ______^
+LL | |
+LL | |         println!("rest");
+LL | |     }
+   | |_____^
+   |
+   = note: `-D clippy::redundant-else` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::redundant_else)]`
+help: remove the `else` block and move the contents out
+   |
+LL ~     }
+LL +
+LL +     println!("rest");
+   |
+
+error: aborting due to 4 previous errors
+

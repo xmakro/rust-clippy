@@ -4,6 +4,7 @@ use clippy_config::Conf;
 use clippy_utils::diagnostics::span_lint_and_then;
 use clippy_utils::source::SpanExt as _;
 use clippy_utils::{fn_has_unsatisfiable_clauses, is_entrypoint_fn, is_in_test};
+use clippy_utils::macros::is_in_external_macro;
 use rustc_errors::Diag;
 use rustc_hir::def_id::LocalDefId;
 use rustc_hir::intravisit::FnKind;
@@ -232,7 +233,7 @@ impl<'tcx> LateLintPass<'tcx> for LargeStackFrames {
                     return;
                 }
 
-                let is_from_external_macro = fn_span.in_external_macro(cx.tcx.sess.source_map());
+                let is_from_external_macro = is_in_external_macro(cx.tcx.sess, fn_span);
                 span_lint_and_then(
                     cx,
                     LARGE_STACK_FRAMES,

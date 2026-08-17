@@ -1,6 +1,6 @@
-use clippy_config::Conf;
 use clippy_utils::diagnostics::span_lint_and_sugg;
-use clippy_utils::msrvs::{self, MsrvStack};
+use clippy_utils::macros::is_in_external_macro;
+use clippy_utils::msrvs::{self, SharedMsrvStack};
 use rustc_ast::ast::{Expr, ExprKind};
 use rustc_errors::Applicability;
 use rustc_lint::{EarlyContext, EarlyLintPass, LintContext as _};
@@ -38,12 +38,12 @@ declare_clippy_lint! {
 impl_lint_pass!(RedundantFieldNames => [REDUNDANT_FIELD_NAMES]);
 
 pub struct RedundantFieldNames {
-    msrv: MsrvStack,
+    msrv: SharedMsrvStack,
 }
 
 impl RedundantFieldNames {
-    pub fn new(conf: &'static Conf) -> Self {
-        Self { msrv: conf.msrv.into() }
+    pub fn new(msrv: SharedMsrvStack) -> Self {
+        Self { msrv }
     }
 }
 
@@ -59,7 +59,7 @@ impl EarlyLintPass for RedundantFieldNames {
                     && segment.args.is_none()
                     && segment.ident == field.ident
                     && field.span.eq_ctxt(field.ident.span)
-                    && !field.span.in_external_macro(cx.sess().source_map())
+                    && !is_in_external_macro(cx.sess(), field.span)
                 {
                     span_lint_and_sugg(
                         cx,
@@ -75,5 +75,4 @@ impl EarlyLintPass for RedundantFieldNames {
         }
     }
 
-    extract_msrv_attr!();
 }

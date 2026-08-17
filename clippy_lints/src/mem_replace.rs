@@ -8,6 +8,7 @@ use clippy_utils::ty::is_non_aggregate_primitive_type;
 use clippy_utils::{
     as_some_expr, is_default_equivalent, is_expr_used_or_unified, is_none_expr, peel_ref_operators, std_or_core, sym,
 };
+use clippy_utils::macros::is_in_external_macro;
 use rustc_errors::Applicability;
 use rustc_hir::{Expr, ExprKind};
 use rustc_lint::{LateContext, LateLintPass};
@@ -258,7 +259,7 @@ fn check_replace_with_default(
         && let expr_type = cx.typeck_results().expr_ty_adjusted(src)
         && !is_non_aggregate_primitive_type(expr_type)
         && is_default_equivalent(cx, src)
-        && !expr.span.in_external_macro(cx.tcx.sess.source_map())
+        && !is_in_external_macro(cx.tcx.sess, expr.span)
         && let Some(top_crate) = std_or_core(cx)
         && msrv.meets(cx, msrvs::MEM_TAKE)
     {

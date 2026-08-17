@@ -1,6 +1,7 @@
 use clippy_config::Conf;
 use clippy_utils::diagnostics::span_lint_and_help;
 use clippy_utils::source::snippet;
+use clippy_utils::macros::is_in_external_macro;
 use rustc_ast::node_id::NodeSet;
 use rustc_ast::visit::{Visitor, walk_block, walk_item};
 use rustc_ast::{Block, Crate, Inline, Item, ItemKind, ModKind, NodeId};
@@ -126,7 +127,7 @@ struct NestingVisitor<'conf, 'cx> {
 impl NestingVisitor<'_, '_> {
     fn check_indent(&mut self, span: Span, id: NodeId) -> bool {
         if self.nest_level > self.conf.excessive_nesting_threshold
-            && !span.in_external_macro(self.cx.sess().source_map())
+            && !is_in_external_macro(self.cx.sess(), span)
         {
             self.conf.nodes.insert(id);
 

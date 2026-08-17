@@ -4,6 +4,7 @@ use clippy_utils::msrvs::{self, Msrv};
 use clippy_utils::res::{MaybeDef as _, MaybeTypeckRes as _};
 use clippy_utils::source::SpanExt as _;
 use clippy_utils::ty::implements_trait;
+use clippy_utils::macros::is_in_external_macro;
 use rustc_errors::Applicability;
 use rustc_hir::def::{DefKind, Res};
 use rustc_hir::{Expr, ExprKind};
@@ -29,7 +30,7 @@ pub(super) fn check<'tcx>(
         && let Res::Def(DefKind::Ctor(_, _), _) = cx.qpath_res(&qpath, path.hir_id)
         && let ExprKind::Closure(closure) = acc.kind
         && msrv.meets(cx, msrvs::ITERATOR_TRY_FOLD)
-        && !fold_span.in_external_macro(cx.sess().source_map())
+        && !is_in_external_macro(cx.sess(), fold_span)
         && !is_from_proc_macro(cx, expr)
         && let Some(args_snip) = closure.fn_arg_span.and_then(|fn_arg_span| fn_arg_span.get_text(cx))
     {

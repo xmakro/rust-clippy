@@ -1,6 +1,7 @@
 use clippy_utils::diagnostics::span_lint_and_then;
 use clippy_utils::msrvs::{self, Msrv};
 use clippy_utils::source;
+use clippy_utils::macros::is_in_external_macro;
 use rustc_ast::Mutability;
 use rustc_hir::{Expr, ExprKind, Node};
 use rustc_lint::LateContext;
@@ -29,7 +30,7 @@ pub(super) fn check<'tcx>(cx: &LateContext<'tcx>, expr: &Expr<'tcx>, msrv: Msrv)
             && from_size != 0
             && to_size != 0
             && msrv.meets(cx, msrvs::PTR_SLICE_RAW_PARTS)
-            && !expr.span.in_external_macro(cx.tcx.sess.source_map())
+            && !is_in_external_macro(cx.tcx.sess, expr.span)
         {
             span_lint_and_then(
                 cx,

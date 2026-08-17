@@ -2,6 +2,7 @@ use clippy_utils::diagnostics::{span_lint_and_then, span_lint_hir};
 use clippy_utils::get_parent_expr;
 use clippy_utils::sugg::Sugg;
 use hir::Param;
+use clippy_utils::macros::is_in_external_macro;
 use rustc_errors::Applicability;
 use rustc_hir as hir;
 use rustc_hir::intravisit::Visitor;
@@ -164,7 +165,7 @@ fn get_parent_call_exprs<'tcx>(
 
 impl<'tcx> LateLintPass<'tcx> for RedundantClosureCall {
     fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx hir::Expr<'tcx>) {
-        if expr.span.in_external_macro(cx.sess().source_map()) {
+        if is_in_external_macro(cx.sess(), expr.span) {
             return;
         }
 

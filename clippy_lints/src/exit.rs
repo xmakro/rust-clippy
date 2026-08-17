@@ -1,5 +1,6 @@
 use clippy_utils::diagnostics::span_lint;
 use clippy_utils::sym;
+use clippy_utils::macros::is_in_external_macro;
 use rustc_hir::{Expr, ExprKind, Item, ItemKind, OwnerNode};
 use rustc_lint::{LateContext, LateLintPass};
 use rustc_session::declare_lint_pass;
@@ -69,7 +70,7 @@ impl<'tcx> LateLintPass<'tcx> for Exit {
             // in compilation contexts like --all-targets (which include --tests), you get false positives
             // because in a test context, main is not the entrypoint function
             && ident.name != sym::main
-            && !e.span.in_external_macro(cx.tcx.sess.source_map())
+            && !is_in_external_macro(cx.tcx.sess, e.span)
         {
             span_lint(cx, EXIT, e.span, "usage of `process::exit`");
         }

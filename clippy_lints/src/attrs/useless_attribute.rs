@@ -3,6 +3,7 @@ use super::utils::{is_lint_level, is_word, namespace_and_lint};
 use clippy_utils::diagnostics::span_lint_and_then;
 use clippy_utils::source::{SpanExt as _, first_line_of_span};
 use clippy_utils::sym;
+use clippy_utils::macros::is_in_external_macro;
 use rustc_ast::{Attribute, Item, ItemKind};
 use rustc_errors::Applicability;
 use rustc_lint::{EarlyContext, LintContext as _};
@@ -70,7 +71,7 @@ pub(super) fn check(cx: &EarlyContext<'_>, item: &Item, attrs: &[Attribute]) {
                 }
             }
 
-            if !attr.span.in_external_macro(cx.sess().source_map())
+            if !is_in_external_macro(cx.sess(), attr.span)
                 && let line_span = first_line_of_span(cx, attr.span)
                 && let Some(src) = line_span.get_text(cx)
                 && src.contains("#[")

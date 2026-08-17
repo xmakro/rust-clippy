@@ -3,6 +3,7 @@ use clippy_utils::msrvs::{self, Msrv};
 use clippy_utils::source::snippet_with_applicability;
 use clippy_utils::sugg::Sugg;
 use clippy_utils::{std_or_core, sym};
+use clippy_utils::macros::is_in_external_macro;
 use rustc_errors::Applicability;
 use rustc_hir::{self as hir, Expr, ExprKind, QPath};
 use rustc_lint::LateContext;
@@ -90,7 +91,7 @@ pub(super) fn check_null_ptr_cast_method(cx: &LateContext<'_>, expr: &Expr<'_>) 
         && let mut app = Applicability::MachineApplicable
         && let sugg = snippet_with_applicability(cx, cast_from_expr.span, "_", &mut app)
         && let Some((_, after_lt)) = sugg.split_once("::<")
-        && !expr.span.in_external_macro(cx.tcx.sess.source_map())
+        && !is_in_external_macro(cx.tcx.sess, expr.span)
     {
         span_lint_and_sugg(
             cx,

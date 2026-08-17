@@ -1,4 +1,5 @@
 use hir::FnSig;
+use clippy_utils::macros::is_in_external_macro;
 use rustc_errors::Applicability;
 use rustc_hir::def::Res;
 use rustc_hir::def_id::DefIdSet;
@@ -139,7 +140,7 @@ fn check_needless_must_use(
     attrs: &[Attribute],
     sig: &FnSig<'_>,
 ) {
-    if item_span.in_external_macro(cx.sess().source_map()) {
+    if is_in_external_macro(cx.sess(), item_span) {
         return;
     }
     if returns_unit(decl) {
@@ -215,7 +216,7 @@ fn check_must_use_candidate<'tcx>(
 ) {
     if has_mutable_arg(cx, body)
         || mutates_static(cx, body)
-        || item_span.in_external_macro(cx.sess().source_map())
+        || is_in_external_macro(cx.sess(), item_span)
         || returns_unit(decl)
         || !cx.effective_visibilities.is_exported(item_id.def_id)
         || opt_must_use_path(cx, return_ty(cx, item_id)).is_some()

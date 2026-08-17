@@ -5,6 +5,7 @@ use clippy_utils::ty::{expr_type_is_certain, has_drop};
 use clippy_utils::{
     in_automatically_derived, is_from_proc_macro, is_inside_always_const_context, is_lint_allowed, peel_blocks,
 };
+use clippy_utils::macros::is_in_external_macro;
 use rustc_errors::Applicability;
 use rustc_hir::def::{DefKind, Res};
 use rustc_hir::{
@@ -272,7 +273,7 @@ fn has_no_effect(cx: &LateContext<'_>, expr: &Expr<'_>) -> bool {
 
 fn check_unnecessary_operation(cx: &LateContext<'_>, stmt: &Stmt<'_>) {
     if let StmtKind::Semi(expr) = stmt.kind
-        && !stmt.span.in_external_macro(cx.sess().source_map())
+        && !is_in_external_macro(cx.sess(), stmt.span)
         && let ctxt = stmt.span.ctxt()
         && expr.range_span().unwrap_or(expr.span).ctxt() == ctxt
         && let Some(reduced) = reduce_expression(cx, expr)
