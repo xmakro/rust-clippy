@@ -1,8 +1,7 @@
 use clippy_utils::diagnostics::span_lint_and_then;
 use clippy_utils::is_from_proc_macro;
 use rustc_hir::{Expr, ExprKind};
-use rustc_lint::{LateContext, LateLintPass, LintContext as _};
-use rustc_session::declare_lint_pass;
+use rustc_lint::{LateContext, LintContext as _};
 
 declare_clippy_lint! {
     /// ### What it does
@@ -55,24 +54,20 @@ declare_clippy_lint! {
     "using a potentially dangerous silent `as` conversion"
 }
 
-declare_lint_pass!(AsConversions => [AS_CONVERSIONS]);
-
-impl<'tcx> LateLintPass<'tcx> for AsConversions {
-    fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &Expr<'tcx>) {
-        if let ExprKind::Cast(_, _) = expr.kind
-            && !expr.span.in_external_macro(cx.sess().source_map())
-            && !is_from_proc_macro(cx, expr)
-        {
-            #[expect(clippy::collapsible_span_lint_calls, reason = "rust-clippy#7797")]
-            span_lint_and_then(
-                cx,
-                AS_CONVERSIONS,
-                expr.span,
-                "using a potentially dangerous silent `as` conversion",
-                |diag| {
-                    diag.help("consider using a safe wrapper for this conversion");
-                },
-            );
-        }
+pub(crate) fn check<'tcx>(cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>) {
+    if let ExprKind::Cast(_, _) = expr.kind
+        && !expr.span.in_external_macro(cx.sess().source_map())
+        && !is_from_proc_macro(cx, expr)
+    {
+        #[expect(clippy::collapsible_span_lint_calls, reason = "rust-clippy#7797")]
+        span_lint_and_then(
+            cx,
+            AS_CONVERSIONS,
+            expr.span,
+            "using a potentially dangerous silent `as` conversion",
+            |diag| {
+                diag.help("consider using a safe wrapper for this conversion");
+            },
+        );
     }
 }
