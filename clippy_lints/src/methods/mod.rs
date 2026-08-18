@@ -5081,6 +5081,14 @@ impl_lint_pass!(Methods => [
     WAKER_CLONE_WAKE,
     WRONG_SELF_CONVENTION,
     ZST_OFFSET,
+    crate::explicit_write::EXPLICIT_WRITE,
+    crate::ineffective_open_options::INEFFECTIVE_OPEN_OPTIONS,
+    crate::permissions_set_readonly_false::PERMISSIONS_SET_READONLY_FALSE,
+    crate::string_patterns::MANUAL_PATTERN_CHAR_COMPARISON,
+    crate::string_patterns::SINGLE_CHAR_PATTERN,
+    crate::to_digit_is_some::TO_DIGIT_IS_SOME,
+    crate::unit_return_expecting_ord::UNIT_RETURN_EXPECTING_ORD,
+    crate::unnecessary_map_on_constructor::UNNECESSARY_MAP_ON_CONSTRUCTOR,
 ]);
 
 #[expect(clippy::struct_excessive_bools)]
@@ -5148,6 +5156,18 @@ impl<'tcx> LateLintPass<'tcx> for Methods {
     }
 
     fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'_>) {
+        // Checks merged from standalone passes. These run before the `from_expansion` guard
+        // below so they still see macro-expanded code, exactly as they did as separate passes.
+        if let ExprKind::MethodCall(..) = expr.kind {
+            crate::unit_return_expecting_ord::check(cx, expr);
+            crate::explicit_write::check(cx, expr, &self.format_args);
+            crate::to_digit_is_some::check(cx, expr, self.msrv);
+            crate::permissions_set_readonly_false::check(cx, expr);
+            crate::unnecessary_map_on_constructor::check(cx, expr);
+            crate::ineffective_open_options::check(cx, expr);
+            crate::string_patterns::check(cx, expr, self.msrv);
+        }
+
         if expr.span.from_expansion() {
             return;
         }
