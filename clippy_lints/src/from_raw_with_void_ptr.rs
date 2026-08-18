@@ -4,9 +4,8 @@ use clippy_utils::sym;
 use clippy_utils::ty::is_c_void;
 use rustc_hir::def_id::DefId;
 use rustc_hir::{Expr, ExprKind, QPath};
-use rustc_lint::{LateContext, LateLintPass};
+use rustc_lint::LateContext;
 use rustc_middle::ty;
-use rustc_session::declare_lint_pass;
 
 declare_clippy_lint! {
     /// ### What it does
@@ -36,28 +35,29 @@ declare_clippy_lint! {
     "creating a `Box` from a void raw pointer"
 }
 
-declare_lint_pass!(FromRawWithVoidPtr => [FROM_RAW_WITH_VOID_PTR]);
-
-impl LateLintPass<'_> for FromRawWithVoidPtr {
-    fn check_expr(&mut self, cx: &LateContext<'_>, expr: &Expr<'_>) {
-        if let ExprKind::Call(box_from_raw, [arg]) = expr.kind
-            && let ExprKind::Path(QPath::TypeRelative(ty, seg)) = box_from_raw.kind
-            && seg.ident.name == sym::from_raw
-            && let Some(type_str) = ty.basic_res().opt_def_id().and_then(|id| def_id_matches_type(cx, id))
-            && let arg_kind = cx.typeck_results().expr_ty(arg).kind()
-            && let ty::RawPtr(ty, _) = arg_kind
-            && is_c_void(cx, *ty)
-        {
-            let msg = format!("creating a `{type_str}` from a void raw pointer");
-            span_lint_and_help(
-                cx,
-                FROM_RAW_WITH_VOID_PTR,
-                expr.span,
-                msg,
-                Some(arg.span),
-                "cast this to a pointer of the appropriate type",
-            );
-        }
+pub(crate) fn check<'tcx>(
+    cx: &LateContext<'tcx>,
+    expr: &'tcx Expr<'tcx>,
+    box_from_raw: &'tcx Expr<'tcx>,
+    args: &'tcx [Expr<'tcx>],
+) {
+    if let [arg] = args
+        && let ExprKind::Path(QPath::TypeRelative(ty, seg)) = box_from_raw.kind
+        && seg.ident.name == sym::from_raw
+        && let Some(type_str) = ty.basic_res().opt_def_id().and_then(|id| def_id_matches_type(cx, id))
+        && let arg_kind = cx.typeck_results().expr_ty(arg).kind()
+        && let ty::RawPtr(ty, _) = arg_kind
+        && is_c_void(cx, *ty)
+    {
+        let msg = format!("creating a `{type_str}` from a void raw pointer");
+        span_lint_and_help(
+            cx,
+            FROM_RAW_WITH_VOID_PTR,
+            expr.span,
+            msg,
+            Some(arg.span),
+            "cast this to a pointer of the appropriate type",
+        );
     }
 }
 

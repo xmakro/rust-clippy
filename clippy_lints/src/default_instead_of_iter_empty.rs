@@ -3,8 +3,7 @@ use clippy_utils::source::snippet_with_context;
 use clippy_utils::{last_path_segment, std_or_core, sym};
 use rustc_errors::Applicability;
 use rustc_hir::{Expr, ExprKind, GenericArg, QPath, TyKind, def};
-use rustc_lint::{LateContext, LateLintPass};
-use rustc_session::declare_lint_pass;
+use rustc_lint::LateContext;
 use rustc_span::SyntaxContext;
 
 declare_clippy_lint! {
@@ -29,33 +28,34 @@ declare_clippy_lint! {
     "check `std::iter::Empty::default()` and replace with `std::iter::empty()`"
 }
 
-declare_lint_pass!(DefaultIterEmpty => [DEFAULT_INSTEAD_OF_ITER_EMPTY]);
-
-impl<'tcx> LateLintPass<'tcx> for DefaultIterEmpty {
-    fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'_>) {
-        if let ExprKind::Call(iter_expr, []) = &expr.kind
-            && let ExprKind::Path(QPath::TypeRelative(ty, _)) = &iter_expr.kind
-            && let TyKind::Path(ty_path) = &ty.kind
-            && let QPath::Resolved(None, path) = ty_path
-            && let def::Res::Def(_, def_id) = &path.res
-            && cx.tcx.is_diagnostic_item(sym::IterEmpty, *def_id)
-            && let ctxt = expr.span.ctxt()
-            && ty.span.ctxt() == ctxt
-        {
-            let mut applicability = Applicability::MachineApplicable;
-            let Some(path) = std_or_core(cx) else { return };
-            let path = format!("{path}::iter::empty");
-            let sugg = make_sugg(cx, ty_path, ctxt, &mut applicability, &path);
-            span_lint_and_sugg(
-                cx,
-                DEFAULT_INSTEAD_OF_ITER_EMPTY,
-                expr.span,
-                format!("`{path}()` is the more idiomatic way"),
-                "try",
-                sugg,
-                applicability,
-            );
-        }
+pub(crate) fn check<'tcx>(
+    cx: &LateContext<'tcx>,
+    expr: &'tcx Expr<'tcx>,
+    func: &'tcx Expr<'tcx>,
+    args: &'tcx [Expr<'tcx>],
+) {
+    if let [] = args
+        && let ExprKind::Path(QPath::TypeRelative(ty, _)) = &func.kind
+        && let TyKind::Path(ty_path) = &ty.kind
+        && let QPath::Resolved(None, path) = ty_path
+        && let def::Res::Def(_, def_id) = &path.res
+        && cx.tcx.is_diagnostic_item(sym::IterEmpty, *def_id)
+        && let ctxt = expr.span.ctxt()
+        && ty.span.ctxt() == ctxt
+    {
+        let mut applicability = Applicability::MachineApplicable;
+        let Some(path) = std_or_core(cx) else { return };
+        let path = format!("{path}::iter::empty");
+        let sugg = make_sugg(cx, ty_path, ctxt, &mut applicability, &path);
+        span_lint_and_sugg(
+            cx,
+            DEFAULT_INSTEAD_OF_ITER_EMPTY,
+            expr.span,
+            format!("`{path}()` is the more idiomatic way"),
+            "try",
+            sugg,
+            applicability,
+        );
     }
 }
 

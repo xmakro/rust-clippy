@@ -1,6 +1,5 @@
 use std::ops::ControlFlow;
 
-use clippy_config::Conf;
 use clippy_utils::consts::{ConstEvalCtxt, Constant};
 use clippy_utils::diagnostics::span_lint_and_then;
 use clippy_utils::msrvs::{self, Msrv};
@@ -9,9 +8,8 @@ use clippy_utils::sym;
 use rustc_errors::Applicability;
 use rustc_hir::attrs::RustcVersion;
 use rustc_hir::{Expr, ExprKind, QPath};
-use rustc_lint::{LateContext, LateLintPass, LintContext as _};
-use rustc_middle::ty::{self, TyCtxt, UintTy};
-use rustc_session::impl_lint_pass;
+use rustc_lint::{LateContext, LintContext as _};
+use rustc_middle::ty::{self, UintTy};
 use rustc_span::Symbol;
 
 declare_clippy_lint! {
@@ -52,104 +50,89 @@ declare_clippy_lint! {
     "constructing a `Duration` using a smaller unit when a larger unit would be more readable"
 }
 
-impl_lint_pass!(DurationSuboptimalUnits => [DURATION_SUBOPTIMAL_UNITS]);
-
-pub struct DurationSuboptimalUnits {
+pub(crate) fn check<'tcx>(
+    cx: &LateContext<'tcx>,
+    expr: &'tcx Expr<'tcx>,
+    func: &'tcx Expr<'tcx>,
+    args: &'tcx [Expr<'tcx>],
     msrv: Msrv,
-    units: Vec<Unit>,
-}
-
-impl DurationSuboptimalUnits {
-    pub fn new(tcx: TyCtxt<'_>, conf: &'static Conf) -> Self {
-        // The order of the units matters, as they are walked top to bottom
-        let mut units = UNITS.to_vec();
-        if tcx.features().enabled(sym::duration_constructors) {
-            units.extend(EXTENDED_UNITS);
-        }
-        Self {
-            msrv: conf.msrv.into(),
-            units,
-        }
+) {
+    if let [arg] = args
+        && let ExprKind::Path(QPath::TypeRelative(func_ty, func_name)) = func.kind
+        && cx
+            .typeck_results()
+            .node_type(func_ty.hir_id)
+            .is_diag_item(cx, sym::Duration)
+        && matches!(cx.typeck_results().expr_ty_adjusted(arg).kind(), ty::Uint(UintTy::U64))
+        // We intentionally don't want to evaluate referenced constants, as we don't want to
+        // recommend a literal value over using constants:
+        //
+        // let dur = Duration::from_millis(TWELVE_THOUSAND);
+        //           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: try: `Duration::from_secs(12)`
+        && let Some(Constant::Int(value)) = ConstEvalCtxt::new(cx).eval_local(arg, expr.span.ctxt())
+        && let Ok(value) = u64::try_from(value) // Cannot fail
+        // There is no need to promote e.g. 0 seconds to 0 hours
+        && value != 0
+        && let Some((promoted_constructor, promoted_value)) = promote(cx, msrv, func_name.ident.name, value)
+        // For plain integer literals, only lint if the promoted value is large enough.
+        // Small promoted values (e.g. `from_millis(1_000)` -> `from_secs(1)`) are not
+        // necessarily more readable, and keeping the smaller unit makes quick adjustments
+        // easier (e.g. changing 1_000 to 1_200 without also changing the function name).
+        // For expressions (e.g. `10 * 60`), always lint since the expression already
+        // signals intent to compute a converted value.
+        && (!matches!(arg.kind, ExprKind::Lit(_)) || promoted_value > 10)
+        && !expr.span.in_external_macro(cx.sess().source_map())
+    {
+        span_lint_and_then(
+            cx,
+            DURATION_SUBOPTIMAL_UNITS,
+            expr.span,
+            "constructing a `Duration` using a smaller unit when a larger unit would be more readable",
+            |diag| {
+                let suggestions = vec![
+                    (func_name.ident.span, promoted_constructor.to_string()),
+                    (arg.span, promoted_value.to_string()),
+                ];
+                diag.multipart_suggestion(
+                    format!("try using `Duration::{promoted_constructor}`"),
+                    suggestions,
+                    Applicability::MachineApplicable,
+                );
+            },
+        );
     }
 }
 
-impl LateLintPass<'_> for DurationSuboptimalUnits {
-    fn check_expr(&mut self, cx: &LateContext<'_>, expr: &'_ Expr<'_>) {
-        if let ExprKind::Call(func, [arg]) = expr.kind
-            && let ExprKind::Path(QPath::TypeRelative(func_ty, func_name)) = func.kind
-            && cx
-                .typeck_results()
-                .node_type(func_ty.hir_id)
-                .is_diag_item(cx, sym::Duration)
-            && matches!(cx.typeck_results().expr_ty_adjusted(arg).kind(), ty::Uint(UintTy::U64))
-            // We intentionally don't want to evaluate referenced constants, as we don't want to
-            // recommend a literal value over using constants:
-            //
-            // let dur = Duration::from_millis(TWELVE_THOUSAND);
-            //           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: try: `Duration::from_secs(12)`
-            && let Some(Constant::Int(value)) = ConstEvalCtxt::new(cx).eval_local(arg, expr.span.ctxt())
-            && let Ok(value) = u64::try_from(value) // Cannot fail
-            // There is no need to promote e.g. 0 seconds to 0 hours
-            && value != 0
-            && let Some((promoted_constructor, promoted_value)) = self.promote(cx, func_name.ident.name, value)
-            // For plain integer literals, only lint if the promoted value is large enough.
-            // Small promoted values (e.g. `from_millis(1_000)` -> `from_secs(1)`) are not
-            // necessarily more readable, and keeping the smaller unit makes quick adjustments
-            // easier (e.g. changing 1_000 to 1_200 without also changing the function name).
-            // For expressions (e.g. `10 * 60`), always lint since the expression already
-            // signals intent to compute a converted value.
-            && (!matches!(arg.kind, ExprKind::Lit(_)) || promoted_value > 10)
-            && !expr.span.in_external_macro(cx.sess().source_map())
-        {
-            span_lint_and_then(
-                cx,
-                DURATION_SUBOPTIMAL_UNITS,
-                expr.span,
-                "constructing a `Duration` using a smaller unit when a larger unit would be more readable",
-                |diag| {
-                    let suggestions = vec![
-                        (func_name.ident.span, promoted_constructor.to_string()),
-                        (arg.span, promoted_value.to_string()),
-                    ];
-                    diag.multipart_suggestion(
-                        format!("try using `Duration::{promoted_constructor}`"),
-                        suggestions,
-                        Applicability::MachineApplicable,
-                    );
-                },
-            );
-        }
+/// Tries to promote the given constructor and value to a bigger time unit and returns the
+/// promoted constructor name and value.
+///
+/// Returns [`None`] in case no promotion could be done.
+fn promote(cx: &LateContext<'_>, msrv: Msrv, constructor_name: Symbol, value: u64) -> Option<(Symbol, u64)> {
+    // The order of the units matters, as they are walked top to bottom
+    let mut units = UNITS.to_vec();
+    if cx.tcx.features().enabled(sym::duration_constructors) {
+        units.extend(EXTENDED_UNITS);
     }
-}
-
-impl DurationSuboptimalUnits {
-    /// Tries to promote the given constructor and value to a bigger time unit and returns the
-    /// promoted constructor name and value.
-    ///
-    /// Returns [`None`] in case no promotion could be done.
-    fn promote(&self, cx: &LateContext<'_>, constructor_name: Symbol, value: u64) -> Option<(Symbol, u64)> {
-        let (best_unit, best_value) = self
-            .units
-            .iter()
-            .skip_while(|unit| unit.constructor_name != constructor_name)
-            .skip(1)
-            .try_fold(
-                (constructor_name, value),
-                |(current_unit, current_value), bigger_unit| {
-                    if let Some(bigger_value) = current_value.div_exact(u64::from(bigger_unit.factor))
-                        && bigger_unit.stable_since.is_none_or(|v| self.msrv.meets(cx, v))
-                    {
-                        ControlFlow::Continue((bigger_unit.constructor_name, bigger_value))
-                    } else {
-                        // We have to break early, as we can't skip versions, as they are needed to
-                        // correctly calculate the promoted value.
-                        ControlFlow::Break((current_unit, current_value))
-                    }
-                },
-            )
-            .into_value();
-        (best_unit != constructor_name).then_some((best_unit, best_value))
-    }
+    let (best_unit, best_value) = units
+        .iter()
+        .skip_while(|unit| unit.constructor_name != constructor_name)
+        .skip(1)
+        .try_fold(
+            (constructor_name, value),
+            |(current_unit, current_value), bigger_unit| {
+                if let Some(bigger_value) = current_value.div_exact(u64::from(bigger_unit.factor))
+                    && bigger_unit.stable_since.is_none_or(|v| msrv.meets(cx, v))
+                {
+                    ControlFlow::Continue((bigger_unit.constructor_name, bigger_value))
+                } else {
+                    // We have to break early, as we can't skip versions, as they are needed to
+                    // correctly calculate the promoted value.
+                    ControlFlow::Break((current_unit, current_value))
+                }
+            },
+        )
+        .into_value();
+    (best_unit != constructor_name).then_some((best_unit, best_value))
 }
 
 #[derive(Clone, Copy)]

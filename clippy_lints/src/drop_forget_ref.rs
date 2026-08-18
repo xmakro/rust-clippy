@@ -2,9 +2,9 @@ use clippy_utils::diagnostics::span_lint_and_then;
 use clippy_utils::is_must_use_func_call;
 use clippy_utils::res::MaybeDef as _;
 use clippy_utils::ty::{is_copy, opt_must_use_path};
+use rustc_hir::def_id::DefId;
 use rustc_hir::{Arm, Expr, ExprKind, LangItem, Node};
-use rustc_lint::{LateContext, LateLintPass};
-use rustc_session::declare_lint_pass;
+use rustc_lint::LateContext;
 use rustc_span::sym;
 use std::borrow::Cow;
 
@@ -70,68 +70,68 @@ declare_clippy_lint! {
     "`mem::forget` usage on `Drop` types, likely to cause memory leaks"
 }
 
-declare_lint_pass!(DropForgetRef => [DROP_NON_DROP, FORGET_NON_DROP, MEM_FORGET]);
-
 const DROP_NON_DROP_SUMMARY: &str = "call to `std::mem::drop` with a value that does not implement `Drop`. \
                                  Dropping such a type only extends its contained lifetimes";
 const FORGET_NON_DROP_SUMMARY: &str = "call to `std::mem::forget` with a value that does not implement `Drop`. \
                                    Forgetting such a type is the same as dropping it";
 
-impl<'tcx> LateLintPass<'tcx> for DropForgetRef {
-    fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'_>) {
-        if let ExprKind::Call(path, [arg]) = expr.kind
-            && let ExprKind::Path(ref qpath) = path.kind
-            && let Some(def_id) = cx.qpath_res(qpath, path.hir_id).opt_def_id()
-            && let Some(fn_name) = cx.tcx.get_diagnostic_name(def_id)
-        {
-            let arg_ty = cx.typeck_results().expr_ty(arg);
-            let is_copy = is_copy(cx, arg_ty);
-            let drop_is_single_call_in_arm = is_single_call_in_arm(cx, arg, expr);
-            let (lint, msg, note_span) = match fn_name {
-                // early return for uplifted lints: dropping_references, dropping_copy_types, forgetting_references,
-                // forgetting_copy_types
-                sym::mem_drop if arg_ty.is_ref() && !drop_is_single_call_in_arm => return,
-                sym::mem_forget if arg_ty.is_ref() => return,
-                sym::mem_drop if is_copy && !drop_is_single_call_in_arm => return,
-                sym::mem_forget if is_copy => return,
-                sym::mem_drop if arg_ty.is_lang_item(cx, LangItem::ManuallyDrop) => return,
-                sym::mem_drop
-                    if !(arg_ty.needs_drop(cx.tcx, cx.typing_env())
-                        || is_must_use_func_call(cx, arg)
-                        || opt_must_use_path(cx, arg_ty).is_some()
-                        || drop_is_single_call_in_arm) =>
-                {
-                    (DROP_NON_DROP, DROP_NON_DROP_SUMMARY.into(), Some(arg.span))
-                },
-                sym::mem_forget => {
-                    if arg_ty.needs_drop(cx.tcx, cx.typing_env()) {
-                        (
-                            MEM_FORGET,
-                            Cow::Owned(format!(
-                                "usage of `mem::forget` on {}",
-                                if arg_ty.ty_adt_def().is_some_and(|def| def.has_dtor(cx.tcx)) {
-                                    "`Drop` type"
-                                } else {
-                                    "type with `Drop` fields"
-                                }
-                            )),
-                            None,
-                        )
-                    } else {
-                        (FORGET_NON_DROP, FORGET_NON_DROP_SUMMARY.into(), Some(arg.span))
-                    }
-                },
-                _ => return,
-            };
-            span_lint_and_then(cx, lint, expr.span, msg, |diag| {
-                let note = format!("argument has type `{arg_ty}`");
-                if let Some(span) = note_span {
-                    diag.span_note(span, note);
+pub(crate) fn check<'tcx>(
+    cx: &LateContext<'tcx>,
+    expr: &'tcx Expr<'tcx>,
+    args: &'tcx [Expr<'tcx>],
+    callee_id: Option<DefId>,
+) {
+    if let [arg] = args
+        && let Some(def_id) = callee_id
+        && let Some(fn_name) = cx.tcx.get_diagnostic_name(def_id)
+    {
+        let arg_ty = cx.typeck_results().expr_ty(arg);
+        let is_copy = is_copy(cx, arg_ty);
+        let drop_is_single_call_in_arm = is_single_call_in_arm(cx, arg, expr);
+        let (lint, msg, note_span) = match fn_name {
+            // early return for uplifted lints: dropping_references, dropping_copy_types, forgetting_references,
+            // forgetting_copy_types
+            sym::mem_drop if arg_ty.is_ref() && !drop_is_single_call_in_arm => return,
+            sym::mem_forget if arg_ty.is_ref() => return,
+            sym::mem_drop if is_copy && !drop_is_single_call_in_arm => return,
+            sym::mem_forget if is_copy => return,
+            sym::mem_drop if arg_ty.is_lang_item(cx, LangItem::ManuallyDrop) => return,
+            sym::mem_drop
+                if !(arg_ty.needs_drop(cx.tcx, cx.typing_env())
+                    || is_must_use_func_call(cx, arg)
+                    || opt_must_use_path(cx, arg_ty).is_some()
+                    || drop_is_single_call_in_arm) =>
+            {
+                (DROP_NON_DROP, DROP_NON_DROP_SUMMARY.into(), Some(arg.span))
+            },
+            sym::mem_forget => {
+                if arg_ty.needs_drop(cx.tcx, cx.typing_env()) {
+                    (
+                        MEM_FORGET,
+                        Cow::Owned(format!(
+                            "usage of `mem::forget` on {}",
+                            if arg_ty.ty_adt_def().is_some_and(|def| def.has_dtor(cx.tcx)) {
+                                "`Drop` type"
+                            } else {
+                                "type with `Drop` fields"
+                            }
+                        )),
+                        None,
+                    )
                 } else {
-                    diag.note(note);
+                    (FORGET_NON_DROP, FORGET_NON_DROP_SUMMARY.into(), Some(arg.span))
                 }
-            });
-        }
+            },
+            _ => return,
+        };
+        span_lint_and_then(cx, lint, expr.span, msg, |diag| {
+            let note = format!("argument has type `{arg_ty}`");
+            if let Some(span) = note_span {
+                diag.span_note(span, note);
+            } else {
+                diag.note(note);
+            }
+        });
     }
 }
 

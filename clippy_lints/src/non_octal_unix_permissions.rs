@@ -2,9 +2,9 @@ use clippy_utils::diagnostics::span_lint_and_sugg;
 use clippy_utils::source::{SpanExt as _, snippet_with_applicability};
 use clippy_utils::sym;
 use rustc_errors::Applicability;
-use rustc_hir::{Expr, ExprKind};
-use rustc_lint::{LateContext, LateLintPass};
-use rustc_session::declare_lint_pass;
+use rustc_hir::def_id::DefId;
+use rustc_hir::{Expr, ExprKind, PathSegment};
+use rustc_lint::LateContext;
 
 declare_clippy_lint! {
     /// ### What it does
@@ -36,42 +36,45 @@ declare_clippy_lint! {
     "use of non-octal value to set unix file permissions, which will be translated into octal"
 }
 
-declare_lint_pass!(NonOctalUnixPermissions => [NON_OCTAL_UNIX_PERMISSIONS]);
+pub(crate) fn check_method_call<'tcx>(
+    cx: &LateContext<'tcx>,
+    expr: &'tcx Expr<'tcx>,
+    path: &'tcx PathSegment<'tcx>,
+    func: &'tcx Expr<'tcx>,
+    args: &'tcx [Expr<'tcx>],
+) {
+    if let [param] = args
+        && let Some(adt) = cx.typeck_results().expr_ty(func).peel_refs().ty_adt_def()
+        && matches!(
+            (cx.tcx.get_diagnostic_name(adt.did()), path.ident.name),
+            (Some(sym::FsOpenOptions | sym::DirBuilder), sym::mode) | (Some(sym::FsPermissions), sym::set_mode)
+        )
+        && let ExprKind::Lit(_) = param.kind
+        && param.span.eq_ctxt(expr.span)
+        && param
+            .span
+            .check_text(cx, |src| !matches!(src.as_bytes(), [b'0', b'o' | b'b', ..]))
+    {
+        show_error(cx, param);
+    }
+}
 
-impl<'tcx> LateLintPass<'tcx> for NonOctalUnixPermissions {
-    fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>) {
-        match &expr.kind {
-            ExprKind::MethodCall(path, func, [param], _) => {
-                if let Some(adt) = cx.typeck_results().expr_ty(func).peel_refs().ty_adt_def()
-                    && matches!(
-                        (cx.tcx.get_diagnostic_name(adt.did()), path.ident.name),
-                        (Some(sym::FsOpenOptions | sym::DirBuilder), sym::mode)
-                            | (Some(sym::FsPermissions), sym::set_mode)
-                    )
-                    && let ExprKind::Lit(_) = param.kind
-                    && param.span.eq_ctxt(expr.span)
-                    && param
-                        .span
-                        .check_text(cx, |src| !matches!(src.as_bytes(), [b'0', b'o' | b'b', ..]))
-                {
-                    show_error(cx, param);
-                }
-            },
-            ExprKind::Call(func, [param]) => {
-                if let ExprKind::Path(ref path) = func.kind
-                    && let Some(def_id) = cx.qpath_res(path, func.hir_id).opt_def_id()
-                    && cx.tcx.is_diagnostic_item(sym::permissions_from_mode, def_id)
-                    && let ExprKind::Lit(_) = param.kind
-                    && param.span.eq_ctxt(expr.span)
-                    && param
-                        .span
-                        .check_text(cx, |src| !matches!(src.as_bytes(), [b'0', b'o' | b'b', ..]))
-                {
-                    show_error(cx, param);
-                }
-            },
-            _ => {},
-        }
+pub(crate) fn check_call<'tcx>(
+    cx: &LateContext<'tcx>,
+    expr: &'tcx Expr<'tcx>,
+    args: &'tcx [Expr<'tcx>],
+    callee_id: Option<DefId>,
+) {
+    if let [param] = args
+        && let Some(def_id) = callee_id
+        && cx.tcx.is_diagnostic_item(sym::permissions_from_mode, def_id)
+        && let ExprKind::Lit(_) = param.kind
+        && param.span.eq_ctxt(expr.span)
+        && param
+            .span
+            .check_text(cx, |src| !matches!(src.as_bytes(), [b'0', b'o' | b'b', ..]))
+    {
+        show_error(cx, param);
     }
 }
 

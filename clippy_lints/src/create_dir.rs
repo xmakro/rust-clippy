@@ -1,9 +1,9 @@
 use clippy_utils::diagnostics::span_lint_and_then;
 use clippy_utils::sym;
 use rustc_errors::Applicability;
+use rustc_hir::def_id::DefId;
 use rustc_hir::{Expr, ExprKind, QPath};
-use rustc_lint::{LateContext, LateLintPass};
-use rustc_session::declare_lint_pass;
+use rustc_lint::LateContext;
 
 declare_clippy_lint! {
     /// ### What it does
@@ -29,35 +29,36 @@ declare_clippy_lint! {
     "calling `std::fs::create_dir` instead of `std::fs::create_dir_all`"
 }
 
-declare_lint_pass!(CreateDir => [CREATE_DIR]);
+pub(crate) fn check<'tcx>(
+    cx: &LateContext<'tcx>,
+    expr: &'tcx Expr<'tcx>,
+    func: &'tcx Expr<'tcx>,
+    args: &'tcx [Expr<'tcx>],
+    callee_id: Option<DefId>,
+) {
+    if let [_] = args
+        && let Some(def_id) = callee_id
+        && cx.tcx.is_diagnostic_item(sym::fs_create_dir, def_id)
+        && let ExprKind::Path(QPath::Resolved(_, path)) = func.kind
+        && let Some(last) = path.segments.last()
+    {
+        span_lint_and_then(
+            cx,
+            CREATE_DIR,
+            expr.span,
+            "calling `std::fs::create_dir` where there may be a better way",
+            |diag| {
+                let mut suggestions = vec![(last.ident.span.shrink_to_hi(), "_all".to_owned())];
+                if path.segments.len() == 1 {
+                    suggestions.push((path.span.shrink_to_lo(), "std::fs::".to_owned()));
+                }
 
-impl LateLintPass<'_> for CreateDir {
-    fn check_expr(&mut self, cx: &LateContext<'_>, expr: &Expr<'_>) {
-        if let ExprKind::Call(func, [_]) = expr.kind
-            && let ExprKind::Path(ref path) = func.kind
-            && let Some(def_id) = cx.qpath_res(path, func.hir_id).opt_def_id()
-            && cx.tcx.is_diagnostic_item(sym::fs_create_dir, def_id)
-            && let QPath::Resolved(_, path) = path
-            && let Some(last) = path.segments.last()
-        {
-            span_lint_and_then(
-                cx,
-                CREATE_DIR,
-                expr.span,
-                "calling `std::fs::create_dir` where there may be a better way",
-                |diag| {
-                    let mut suggestions = vec![(last.ident.span.shrink_to_hi(), "_all".to_owned())];
-                    if path.segments.len() == 1 {
-                        suggestions.push((path.span.shrink_to_lo(), "std::fs::".to_owned()));
-                    }
-
-                    diag.multipart_suggestion(
-                        "consider calling `std::fs::create_dir_all` instead",
-                        suggestions,
-                        Applicability::MaybeIncorrect,
-                    );
-                },
-            );
-        }
+                diag.multipart_suggestion(
+                    "consider calling `std::fs::create_dir_all` instead",
+                    suggestions,
+                    Applicability::MaybeIncorrect,
+                );
+            },
+        );
     }
 }

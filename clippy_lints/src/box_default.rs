@@ -7,8 +7,7 @@ use rustc_errors::Applicability;
 use rustc_hir::def::Res;
 use rustc_hir::intravisit::{InferKind, Visitor, VisitorExt as _, walk_ty};
 use rustc_hir::{AmbigArg, Block, Expr, ExprKind, HirId, LangItem, LetStmt, Node, QPath, Ty, TyKind};
-use rustc_lint::{LateContext, LateLintPass, LintContext as _};
-use rustc_session::declare_lint_pass;
+use rustc_lint::{LateContext, LintContext as _};
 use rustc_span::Span;
 
 declare_clippy_lint! {
@@ -33,40 +32,41 @@ declare_clippy_lint! {
     "Using Box::new(T::default()) instead of Box::default()"
 }
 
-declare_lint_pass!(BoxDefault => [BOX_DEFAULT]);
-
-impl LateLintPass<'_> for BoxDefault {
-    fn check_expr(&mut self, cx: &LateContext<'_>, expr: &Expr<'_>) {
-        // If the expression is a call (`Box::new(...)`)
-        if let ExprKind::Call(box_new, [arg]) = expr.kind
-            // And call is of the form `<T>::something`
-            // Here, it would be `<Box>::new`
-            && let ExprKind::Path(QPath::TypeRelative(ty, seg)) = box_new.kind
-            // And that method is `new`
-            && seg.ident.name == sym::new
-            // And the call is that of a `Box` method
-            && ty.basic_res().is_lang_item(cx, LangItem::OwnedBox)
-            // And the single argument to the call is another function call
-            // This is the `T::default()` (or default equivalent) of `Box::new(T::default())`
-            && let ExprKind::Call(arg_path, _) = arg.kind
-            // And we are not in a foreign crate's macro
-            && !expr.span.in_external_macro(cx.sess().source_map())
-            // And the argument expression has the same context as the outer call expression
-            // or that we are inside a `vec!` macro expansion
-            && (expr.span.eq_ctxt(arg.span) || is_local_vec_expn(cx, arg, expr))
-            // And the argument is `Default::default()` or the type is specified
-            && (is_plain_default(cx, arg_path) || (given_type(cx, expr) && is_default_equivalent(cx, arg)))
-        {
-            span_lint_and_sugg(
-                cx,
-                BOX_DEFAULT,
-                expr.span,
-                "`Box::new(_)` of default value",
-                "try",
-                "Box::default()".into(),
-                Applicability::MachineApplicable,
-            );
-        }
+pub(crate) fn check<'tcx>(
+    cx: &LateContext<'tcx>,
+    expr: &'tcx Expr<'tcx>,
+    box_new: &'tcx Expr<'tcx>,
+    args: &'tcx [Expr<'tcx>],
+) {
+    // If the call has a single argument (`Box::new(...)`)
+    if let [arg] = args
+        // And call is of the form `<T>::something`
+        // Here, it would be `<Box>::new`
+        && let ExprKind::Path(QPath::TypeRelative(ty, seg)) = box_new.kind
+        // And that method is `new`
+        && seg.ident.name == sym::new
+        // And the call is that of a `Box` method
+        && ty.basic_res().is_lang_item(cx, LangItem::OwnedBox)
+        // And the single argument to the call is another function call
+        // This is the `T::default()` (or default equivalent) of `Box::new(T::default())`
+        && let ExprKind::Call(arg_path, _) = arg.kind
+        // And we are not in a foreign crate's macro
+        && !expr.span.in_external_macro(cx.sess().source_map())
+        // And the argument expression has the same context as the outer call expression
+        // or that we are inside a `vec!` macro expansion
+        && (expr.span.eq_ctxt(arg.span) || is_local_vec_expn(cx, arg, expr))
+        // And the argument is `Default::default()` or the type is specified
+        && (is_plain_default(cx, arg_path) || (given_type(cx, expr) && is_default_equivalent(cx, arg)))
+    {
+        span_lint_and_sugg(
+            cx,
+            BOX_DEFAULT,
+            expr.span,
+            "`Box::new(_)` of default value",
+            "try",
+            "Box::default()".into(),
+            Applicability::MachineApplicable,
+        );
     }
 }
 
