@@ -100,7 +100,12 @@ fn find_panic(cx: &LateContext<'_>, body_id: BodyId) -> Option<Span> {
     let mut panic_span = None;
     let typeck = cx.tcx.typeck_body(body_id);
     for_each_expr(cx.tcx, cx.tcx.hir_body(body_id), |expr| {
-        if is_inside_always_const_context(cx.tcx, expr.hir_id) {
+        // Only macro expansions and `unwrap`/`expect` calls can match below; filter on
+        // those syntactically before `is_inside_always_const_context` walks the parent
+        // chain, since most expressions are neither.
+        let unwrap_like = method_chain_args(expr, &[sym::unwrap]).or_else(|| method_chain_args(expr, &[sym::expect]));
+        if (unwrap_like.is_none() && !expr.span.from_expansion()) || is_inside_always_const_context(cx.tcx, expr.hir_id)
+        {
             return ControlFlow::<!>::Continue(());
         }
 
@@ -117,8 +122,7 @@ fn find_panic(cx: &LateContext<'_>, body_id: BodyId) -> Option<Span> {
         }
 
         // check for `unwrap` and `expect` for both `Option` and `Result`
-        if let Some(arglists) =
-            method_chain_args(expr, &[sym::unwrap]).or_else(|| method_chain_args(expr, &[sym::expect]))
+        if let Some(arglists) = unwrap_like
             && let receiver_ty = typeck.expr_ty(arglists[0].0).peel_refs()
             && matches!(receiver_ty.opt_diag_name(cx), Some(sym::Option | sym::Result))
             && !fulfill_or_allowed(cx, MISSING_PANICS_DOC, [expr.hir_id])
