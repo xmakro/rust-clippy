@@ -213,14 +213,17 @@ fn check_must_use_candidate<'tcx>(
     item_id: hir::OwnerId,
     msg: &'static str,
 ) {
-    if has_mutable_arg(cx, body)
-        || mutates_static(cx, body)
-        || item_span.in_external_macro(cx.sess().source_map())
-        || returns_unit(decl)
-        || !cx.effective_visibilities.is_exported(item_id.def_id)
-        || opt_must_use_path(cx, return_ty(cx, item_id)).is_some()
+    // Ordered from cheapest to most expensive: the syntactic and map-lookup checks
+    // dismiss most functions before the type-based checks (`opt_must_use_path`,
+    // `has_mutable_arg`) and the body walk (`mutates_static`) run.
+    if returns_unit(decl)
         || item_span.from_expansion()
+        || !cx.effective_visibilities.is_exported(item_id.def_id)
         || is_entrypoint_fn(cx, item_id.def_id.to_def_id())
+        || item_span.in_external_macro(cx.sess().source_map())
+        || opt_must_use_path(cx, return_ty(cx, item_id)).is_some()
+        || has_mutable_arg(cx, body)
+        || mutates_static(cx, body)
     {
         return;
     }
