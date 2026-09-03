@@ -54,6 +54,7 @@ mod utils;
 
 mod combined_early_pass;
 mod combined_late_pass;
+mod expr_dispatch;
 
 pub mod declared_lints;
 pub mod deprecated_lints;
