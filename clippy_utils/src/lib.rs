@@ -101,7 +101,7 @@ use rustc_hir::{
     find_attr,
 };
 use rustc_lexer::{FrontmatterAllowed, TokenKind, tokenize};
-use rustc_lint::{LateContext, Level, Lint, LintContext as _};
+use rustc_lint::{LateContext, Level, Lint, LintContext as _, LintId};
 use rustc_middle::hir::nested_filter;
 use rustc_middle::hir::place::PlaceBase;
 use rustc_middle::mir::{AggregateKind, Operand, RETURN_PLACE, Rvalue, StatementKind, TerminatorKind};
@@ -1610,6 +1610,11 @@ pub fn is_try<'tcx>(cx: &LateContext<'_>, expr: &'tcx Expr<'tcx>) -> Option<&'tc
 /// [`span_lint_hir`](diagnostics::span_lint_hir) or
 /// [`span_lint_hir_and_then`](diagnostics::span_lint_hir_and_then)
 pub fn fulfill_or_allowed(cx: &LateContext<'_>, lint: &'static Lint, ids: impl IntoIterator<Item = HirId>) -> bool {
+    // A skippable lint is allowed everywhere and has no expectations to fulfill.
+    if is_lint_skippable(cx, lint) {
+        return true;
+    }
+
     let mut suppress_lint = false;
 
     for id in ids {
@@ -1635,7 +1640,14 @@ pub fn fulfill_or_allowed(cx: &LateContext<'_>, lint: &'static Lint, ids: impl I
 /// make sure to use `span_lint_hir` functions to emit the lint. This ensures that
 /// expectations at the checked nodes will be fulfilled.
 pub fn is_lint_allowed(cx: &LateContext<'_>, lint: &'static Lint, id: HirId) -> bool {
-    cx.tcx.lint_level_spec_at_node(lint, id).is_allow()
+    is_lint_skippable(cx, lint) || cx.tcx.lint_level_spec_at_node(lint, id).is_allow()
+}
+
+/// Returns true if `lint` is allowed at every node of the crate: it is allowed at the crate root and
+/// no attribute raises its level or expects it. This is the per-lint form of the check rustc uses
+/// to skip whole lint passes, and is much cheaper than looking up the level at a node.
+pub fn is_lint_skippable(cx: &LateContext<'_>, lint: &'static Lint) -> bool {
+    cx.tcx.skippable_lints(()).contains(&LintId::of(lint))
 }
 
 pub fn strip_pat_refs<'hir>(mut pat: &'hir Pat<'hir>) -> &'hir Pat<'hir> {
