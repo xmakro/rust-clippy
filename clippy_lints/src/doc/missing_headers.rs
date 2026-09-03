@@ -4,7 +4,9 @@ use clippy_utils::macros::{is_panic, root_macro_call_first_node};
 use clippy_utils::res::MaybeDef as _;
 use clippy_utils::ty::implements_trait_with_env;
 use clippy_utils::visitors::for_each_expr;
-use clippy_utils::{fulfill_or_allowed, is_doc_hidden, is_inside_always_const_context, method_chain_args, return_ty};
+use clippy_utils::{
+    fulfill_or_allowed, is_doc_hidden, is_inside_always_const_context, is_lint_skippable, method_chain_args, return_ty,
+};
 use rustc_hir::{BodyId, FnSig, OwnerId, Safety};
 use rustc_lint::LateContext;
 use rustc_middle::ty;
@@ -51,6 +53,9 @@ pub fn check(
     }
     if !headers.panics
         && let Some(body_id) = body_id
+        // `find_panic` walks the whole body, and only to fulfill expectations when the lint is
+        // allowed, so skip it when the lint is allowed everywhere.
+        && !is_lint_skippable(cx, MISSING_PANICS_DOC)
         && let Some(panic_span) = find_panic(cx, body_id)
     {
         span_lint_and_note(
