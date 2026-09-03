@@ -160,7 +160,7 @@ use clippy_utils::consts::{ConstEvalCtxt, Constant};
 use clippy_utils::macros::FormatArgsStorage;
 use clippy_utils::msrvs::{self, Msrv};
 use clippy_utils::res::{MaybeDef as _, MaybeTypeckRes as _};
-use clippy_utils::{contains_return, iter_input_pats, peel_blocks, sym};
+use clippy_utils::{contains_return, is_lint_allowed, iter_input_pats, peel_blocks, sym};
 use rustc_data_structures::fx::FxHashSet;
 use rustc_hir::{self as hir, Expr, ExprKind, Node, Stmt, StmtKind, TraitItem, TraitItemKind};
 use rustc_lint::{LateContext, LateLintPass, LintContext as _, impl_lint_pass};
@@ -5391,7 +5391,9 @@ impl Methods {
                     }
                 },
                 (sym::collect, []) if cx.ty_based_def(expr).opt_parent(cx).is_diag_item(cx, sym::Iterator) => {
-                    needless_collect::check(cx, span, expr, recv, call_span);
+                    if !is_lint_allowed(cx, NEEDLESS_COLLECT, expr.hir_id) {
+                        needless_collect::check(cx, span, expr, recv, call_span);
+                    }
                     match method_call(recv) {
                         Some((name @ (sym::cloned | sym::copied), recv2, [], _, _)) => {
                             iter_cloned_collect::check(cx, name, expr, recv2);

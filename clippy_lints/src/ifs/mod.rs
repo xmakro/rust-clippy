@@ -191,13 +191,17 @@ impl<'tcx> LateLintPass<'tcx> for CopyAndPaste<'tcx> {
         if matches!(expr.kind, ExprKind::If(..)) && !is_else_clause(cx.tcx, expr) {
             let (conds, blocks) = if_sequence(expr);
             ifs_same_cond::check(cx, &conds, &mut self.interior_mut);
-            same_functions_in_if_cond::check(cx, &conds);
+            if !is_lint_allowed(cx, SAME_FUNCTIONS_IN_IF_CONDITION, expr.hir_id) {
+                same_functions_in_if_cond::check(cx, &conds);
+            }
             let all_same =
                 !is_lint_allowed(cx, IF_SAME_THEN_ELSE, expr.hir_id) && if_same_then_else::check(cx, &conds, &blocks);
-            if !all_same && conds.len() != blocks.len() {
+            if !all_same && conds.len() != blocks.len() && !is_lint_allowed(cx, BRANCHES_SHARING_CODE, expr.hir_id) {
                 branches_sharing_code::check(cx, &conds, &blocks, expr);
             }
-        } else if let ExprKind::Match(_, arms, _) = expr.kind {
+        } else if let ExprKind::Match(_, arms, _) = expr.kind
+            && !is_lint_allowed(cx, BRANCHES_SHARING_CODE, expr.hir_id)
+        {
             branches_sharing_code::check_match(cx, expr, arms);
         }
     }

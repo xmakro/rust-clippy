@@ -28,8 +28,8 @@ mod utils;
 mod zero_ptr;
 
 use clippy_config::Conf;
-use clippy_utils::is_hir_ty_cfg_dependant;
 use clippy_utils::msrvs::{self, Msrv};
+use clippy_utils::{is_hir_ty_cfg_dependant, is_lint_allowed};
 use rustc_hir::{Expr, ExprKind};
 use rustc_lint::{LateContext, LateLintPass, LintContext as _, impl_lint_pass};
 
@@ -954,6 +954,9 @@ impl<'tcx> LateLintPass<'tcx> for Casts {
     }
 
     fn check_body(&mut self, cx: &LateContext<'tcx>, body: &rustc_hir::Body<'tcx>) {
-        needless_type_cast::check(cx, body);
+        // `needless_type_cast` walks the whole body, so skip it when the lint is allowed here.
+        if !is_lint_allowed(cx, NEEDLESS_TYPE_CAST, cx.last_node_with_lint_attrs) {
+            needless_type_cast::check(cx, body);
+        }
     }
 }
