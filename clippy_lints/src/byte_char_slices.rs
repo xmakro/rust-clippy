@@ -85,22 +85,20 @@ fn is_byte_char_slices<'tcx>(cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>) -> 
 
     if let ExprKind::Array(members) = expr.kind
         && !members.is_empty()
+        && let Some(spans) = members
+            .iter()
+            .map(|member| match member.kind {
+                ExprKind::Lit(lit) if matches!(lit.node, LitKind::Byte(_)) && expr.span.eq_ctxt(member.span) => {
+                    Some(lit.span)
+                },
+                _ => None,
+            })
+            .collect::<Option<Vec<_>>>()
+        // Both scan the array's source text, so check the members first.
         && !span_contains_comment(cx, expr.span)
         && !span_contains_cfg(cx, expr.span)
     {
-        return members
-            .iter()
-            .try_fold(Vec::new(), |mut acc, member| {
-                if let ExprKind::Lit(lit) = member.kind
-                    && let LitKind::Byte(_) = lit.node
-                    && expr.span.eq_ctxt(member.span)
-                {
-                    acc.push(lit.span);
-                    return Some(acc);
-                }
-                None
-            })
-            .map(|s| (has_ref, s));
+        return Some((has_ref, spans));
     }
 
     None

@@ -222,8 +222,13 @@ fn check_possible_range_contains(
         BinOpKind::Or | BinOpKind::BitOr => false,
         _ => return,
     };
+    // The right operand is the same at every level of the chain below, so when it is not a range
+    // bound nothing can lint; check that before scanning the source text of the chain.
+    let Some(r) = check_range_bounds(cx, right) else {
+        return;
+    };
     // value, name, order (higher/lower), inclusiveness
-    if let (Some(l), Some(r)) = (check_range_bounds(cx, left), check_range_bounds(cx, right)) {
+    if let Some(l) = check_range_bounds(cx, left) {
         // we only lint comparisons on the same name and with different
         // direction
         if l.id != r.id || l.ord == r.ord {

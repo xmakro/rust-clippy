@@ -130,7 +130,6 @@ impl<'tcx> LateLintPass<'tcx> for NeedlessBool {
                 then,
                 r#else: Some(else_expr),
             }) = higher::If::hir(e)
-            && !span_contains_comment(cx, e.span)
         {
             let reduce = |ret, not| {
                 span_lint_and_then(
@@ -163,8 +162,10 @@ impl<'tcx> LateLintPass<'tcx> for NeedlessBool {
                     },
                 );
             };
+            // `span_contains_comment` tokenizes the whole `if`, so check the branch shapes first.
             if let Some(a) = fetch_bool_block(then)
                 && let Some(b) = fetch_bool_block(else_expr)
+                && !span_contains_comment(cx, e.span)
             {
                 match (a, b) {
                     (RetBool(true), RetBool(true)) | (Bool(true), Bool(true)) => {
@@ -193,6 +194,7 @@ impl<'tcx> LateLintPass<'tcx> for NeedlessBool {
             if let Some((lhs_a, a)) = fetch_assign(then)
                 && let Some((lhs_b, b)) = fetch_assign(else_expr)
                 && SpanlessEq::new(cx).eq_expr(SyntaxContext::root(), lhs_a, lhs_b)
+                && !span_contains_comment(cx, e.span)
             {
                 let mut applicability = Applicability::MachineApplicable;
                 let cond = Sugg::hir_with_context(cx, cond, e.span.ctxt(), "..", &mut applicability);
