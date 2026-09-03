@@ -22,11 +22,12 @@ pub(crate) fn check_if_let<'tcx>(
     then_expr: &'tcx Expr<'_>,
     else_expr: &'tcx Expr<'_>,
 ) {
-    if !span_contains_comment(cx, expr.span)
-        && cx.typeck_results().expr_ty(expr).is_bool()
+    if cx.typeck_results().expr_ty(expr).is_bool()
         && let Some(b0) = find_bool_lit(then_expr)
         && let Some(b1) = find_bool_lit(else_expr)
         && b0 != b1
+        // `span_contains_comment` tokenizes the whole expression, so check the shape first.
+        && !span_contains_comment(cx, expr.span)
     {
         if !is_lint_allowed(cx, REDUNDANT_PATTERN_MATCHING, let_pat.hir_id) && is_some_wild(let_pat.kind) {
             return;
@@ -71,11 +72,12 @@ pub(super) fn check_match<'tcx>(
 ) -> bool {
     if let Some((last_arm, arms_without_last)) = arms.split_last()
         && let Some((first_arm, middle_arms)) = arms_without_last.split_first()
-        && !span_contains_comment(cx, e.span)
         && cx.typeck_results().expr_ty(e).is_bool()
         && let Some(b0) = find_bool_lit(first_arm.body)
         && let Some(b1) = find_bool_lit(last_arm.body)
         && b0 != b1
+        // `span_contains_comment` tokenizes the whole `match`, so check the arm shapes first.
+        && !span_contains_comment(cx, e.span)
         // We handle two cases:
         && (
             // - There are no middle arms, i.e., 2 arms in total
