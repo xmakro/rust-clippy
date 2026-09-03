@@ -25,8 +25,8 @@ pub fn check(cx: &LateContext<'_>, doc: &str, range: Range<usize>, fragments: &F
                 // the `doc` string contains all fragments concatenated together
                 // figure out which one this suspicious footnote comes from
                 let mut starting_position = 0;
-                let mut found_fragment = fragments.fragments.last();
-                for fragment in fragments.fragments {
+                let mut found_fragment = fragments.items.last();
+                for fragment in fragments.items {
                     if start >= starting_position && start < starting_position + fragment.doc.as_str().len() {
                         found_fragment = Some(fragment);
                         break;

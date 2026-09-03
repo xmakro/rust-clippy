@@ -18,7 +18,8 @@ use rustc_resolve::rustdoc::{
     DocFragment, add_doc_fragment, attrs_to_doc_fragments, main_body_opts, pulldown_cmark,
     source_span_for_markdown_range, span_of_fragments,
 };
-use rustc_span::Span;
+use rustc_span::{BytePos, InnerSpan, Pos as _, Span};
+use std::cell::OnceCell;
 use std::ops::Range;
 use url::Url;
 
@@ -831,18 +832,125 @@ impl<'tcx> LateLintPass<'tcx> for Documentation {
     }
 }
 
+/// Per-doc index from markdown byte offsets to source offsets, for docs made only of sugared
+/// fragments (`///`, `//!`, `/** */` and `/*! */`).
+///
+/// `source_span_for_markdown_range` re-reads the source snippet and walks it line by line on
+/// every call, so each lookup costs as much as the whole doc and a doc that fires many lints pays
+/// that repeatedly. Within a line, markdown and source advance byte for byte, so the source
+/// offset of a markdown position is the position plus the extra source bytes (comment markers,
+/// indentation, source lines without a markdown counterpart) before that line. This walks the
+/// lines once, exactly as `source_span_for_markdown_range` does, and records that byte count per
+/// line. A lookup of a range within one line is then a binary search. Everything else, including
+/// lines where the walk gave up, falls back to `source_span_for_markdown_range`, so the results
+/// are identical.
+struct SugaredDocSpanIndex {
+    /// Span covering all fragments; source offsets are relative to its start.
+    span: Span,
+    /// Markdown byte offset at which each line starts.
+    line_starts: Vec<usize>,
+    /// Extra source bytes before the content of each line, up to the first line where the
+    /// walk gives up.
+    deltas: Vec<usize>,
+}
+
+impl SugaredDocSpanIndex {
+    fn build(cx: &LateContext<'_>, doc: &str, fragments: &[DocFragment]) -> Option<Self> {
+        if !fragments.iter().all(|fragment| fragment.kind.is_sugared()) {
+            return None;
+        }
+        let span = span_of_fragments(fragments)?;
+        let snippet = cx.sess().source_map().span_to_snippet(span).ok()?;
+        let span_lo = span.lo();
+
+        // Fragment bounds in source order; the walk below relies on them not overlapping.
+        let bounds: Vec<(BytePos, BytePos)> = fragments
+            .iter()
+            .map(|fragment| (fragment.span.lo(), fragment.span.hi()))
+            .collect();
+        if bounds.windows(2).any(|pair| pair[0].1 > pair[1].0) {
+            return None;
+        }
+
+        let mut deltas = Vec::new();
+        let mut src_lines = snippet.split_terminator('\n');
+        let mut src_pos = 0;
+        let mut md_pos = 0;
+        let mut fragment_idx = 0;
+        'lines: for md_line in doc.split_terminator('\n') {
+            loop {
+                let Some(src_line) = src_lines.next() else {
+                    break 'lines;
+                };
+                let line_lo = span_lo + BytePos::from_usize(src_pos);
+                let line_hi = line_lo + BytePos::from_usize(src_line.len());
+                src_pos += src_line.len() + 1;
+
+                // Same lookup as `source_span_for_markdown_range`: the first fragment overlapping
+                // the source line. Fragments are sorted, so keep a cursor instead of rescanning.
+                while bounds.get(fragment_idx).is_some_and(|&(_, hi)| hi <= line_lo) {
+                    fragment_idx += 1;
+                }
+                let fragment = bounds.get(fragment_idx).filter(|&&(lo, _)| lo < line_hi);
+                if let Some(&(lo, hi)) = fragment
+                    && let Some(offset) = src_line.find(md_line)
+                {
+                    // Something other than whitespace between the line start and the fragment,
+                    // or between the fragment and the line end, is where the fallback gives up.
+                    let has_content = |text: &str| text.chars().any(|c| !c.is_whitespace());
+                    if (lo > line_lo && has_content(&src_line[..(lo.0 - line_lo.0) as usize]))
+                        || (hi < line_hi && has_content(&src_line[(hi.0 - line_lo.0) as usize..]))
+                    {
+                        break 'lines;
+                    }
+                    deltas.push(src_pos - (src_line.len() + 1) + offset - md_pos);
+                    break;
+                }
+            }
+            md_pos += md_line.len() + 1;
+        }
+
+        let mut line_starts = vec![0];
+        line_starts.extend(doc.match_indices('\n').map(|(i, _)| i + 1));
+        Some(Self {
+            span,
+            line_starts,
+            deltas,
+        })
+    }
+
+    fn span(&self, range: &Range<usize>) -> Option<Span> {
+        let line = self.line_starts.partition_point(|&start| start <= range.start) - 1;
+        // `source_span_for_markdown_range` treats a range containing a newline differently.
+        if self.line_starts.partition_point(|&start| start <= range.end) - 1 != line {
+            return None;
+        }
+        let delta = *self.deltas.get(line)?;
+        let inner = InnerSpan::new(range.start + delta, range.end + delta);
+        Some(self.span.from_inner(inner))
+    }
+}
+
 #[derive(Copy, Clone)]
 struct Fragments<'a> {
     doc: &'a str,
-    fragments: &'a [DocFragment],
+    items: &'a [DocFragment],
+    /// Built on the first lookup and shared by every lookup for this doc.
+    span_index: &'a OnceCell<Option<SugaredDocSpanIndex>>,
 }
 
 impl Fragments<'_> {
-    /// get the span for the markdown range. Note that this function is not cheap, use it with
-    /// caution.
+    /// get the span for the markdown range
     #[must_use]
     fn span(self, cx: &LateContext<'_>, range: Range<usize>) -> Option<Span> {
-        source_span_for_markdown_range(cx.tcx, self.doc, &range, self.fragments).map(|(sp, _)| sp)
+        if let Some(index) = self
+            .span_index
+            .get_or_init(|| SugaredDocSpanIndex::build(cx, self.doc, self.items))
+            && let Some(span) = index.span(&range)
+        {
+            return Some(span);
+        }
+        source_span_for_markdown_range(cx.tcx, self.doc, &range, self.items).map(|(sp, _)| sp)
     }
 }
 
@@ -907,6 +1015,9 @@ fn check_attrs(cx: &LateContext<'_>, valid_idents: &FxHashSet<String>, attrs: &[
         return Some(DocHeaders::default());
     }
 
+    // Shared by every markdown range lookup for this doc, so its line index is built at most once.
+    let span_index = OnceCell::new();
+
     // Only emits the allow-by-default `DOC_LINK_CODE`; skip its extra markdown reparse when it's off.
     if !clippy_utils::is_lint_allowed(cx, DOC_LINK_CODE, cx.last_node_with_lint_attrs) {
         check_for_code_clusters(
@@ -920,7 +1031,8 @@ fn check_attrs(cx: &LateContext<'_>, valid_idents: &FxHashSet<String>, attrs: &[
             &doc,
             Fragments {
                 doc: &doc,
-                fragments: &fragments,
+                items: &fragments,
+                span_index: &span_index,
             },
         );
     }
@@ -932,7 +1044,8 @@ fn check_attrs(cx: &LateContext<'_>, valid_idents: &FxHashSet<String>, attrs: &[
             &doc,
             Fragments {
                 doc: &doc,
-                fragments: &fragments,
+                items: &fragments,
+                span_index: &span_index,
             },
         );
     }
@@ -956,7 +1069,8 @@ fn check_attrs(cx: &LateContext<'_>, valid_idents: &FxHashSet<String>, attrs: &[
         &doc,
         Fragments {
             doc: &doc,
-            fragments: &fragments,
+            items: &fragments,
+            span_index: &span_index,
         },
         attrs,
     ))
@@ -1246,7 +1360,7 @@ fn check_doc<'a, Events: Iterator<Item = (pulldown_cmark::Event<'a>, Range<usize
                 }
                 if check_doc_markdown {
                     if ticks_unbalanced && let Some(span) = fragments.span(cx, paragraph_range.clone())
-                    .or_else(|| span_of_fragments(fragments.fragments)) {
+                    .or_else(|| span_of_fragments(fragments.items)) {
                         span_lint_and_help(
                             cx,
                             DOC_MARKDOWN,
