@@ -1,9 +1,10 @@
 use clippy_config::Conf;
 use clippy_utils::attrs::is_doc_hidden;
 use clippy_utils::diagnostics::{span_lint, span_lint_and_help, span_lint_and_then};
-use clippy_utils::{is_entrypoint_fn, is_trait_impl_item};
+use clippy_utils::{is_entrypoint_fn, is_trait_impl_item, sym};
 use rustc_data_structures::fx::FxHashSet;
 use rustc_errors::Applicability;
+use rustc_hir::attrs::AttributeKind;
 use rustc_hir::{Attribute, FieldDef, ImplItemKind, ItemKind, Node, Safety, TraitItemKind};
 use rustc_lint::{EarlyContext, EarlyLintPass, LateContext, LateLintPass, LintContext as _, impl_lint_pass};
 use rustc_resolve::rustdoc::pulldown_cmark::Event::{
@@ -869,6 +870,19 @@ fn check_attrs(cx: &LateContext<'_>, valid_idents: &FxHashSet<String>, attrs: &[
     #[expect(clippy::unnecessary_wraps)] // we're following a type signature
     fn fake_broken_link_callback<'a>(_: BrokenLink<'_>) -> Option<(CowStr<'a>, CowStr<'a>)> {
         Some(("fake".into(), "fake".into()))
+    }
+
+    // Everything this function looks at lives in a doc comment, a `#[doc = ...]` value or a
+    // `#[doc(...)]` list. Most nodes have no such attribute, so skip the fragment collection
+    // and string assembly entirely for them; the result is the same as falling through with an
+    // empty `doc` below, without a fragment span to lint.
+    if !attrs.iter().any(|attr| {
+        matches!(
+            attr,
+            Attribute::Parsed(AttributeKind::DocComment { .. } | AttributeKind::Doc(_))
+        ) || attr.has_name(sym::doc)
+    }) {
+        return Some(DocHeaders::default());
     }
 
     if suspicious_doc_comments::check(cx, attrs) || is_doc_hidden(attrs) {
